@@ -5,16 +5,33 @@
 # 이 스크립트를 소싱하면 지정된 코딩 어시스턴트 CLI만 자동으로 감싸집니다.
 #
 # 사용법:
-#   source /path/to/genius_intelligence_shell.sh
+#   . /path/to/genius_intelligence_shell.sh
 #   # 또는
 #   eval "$(genius shell-init)"
 #
 # 기본으로 감싸지는 CLI: claude, omp, opencode, aider, codex, cursor 등
+#
+# 주의: 이 스크립트는 배열, [[ ]], bash completion 등 bash/zsh 전용 기능을
+# 사용합니다. 순수 POSIX sh/dash 대화형 셸(예: 일부 배포판의 기본 로그인 셸)
+# 에서는 아래 가드에서 조용히 아무 것도 하지 않고 종료합니다 (에러 없이).
+# 자동 CLI 래핑 기능을 쓰려면 bash 또는 zsh 를 사용해주세요.
 # =============================================================================
+
+if [ -z "${BASH_VERSION:-}" ] && [ -z "${ZSH_VERSION:-}" ]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 set -e
 
-_GENIUS_ROOT="${GENIUS_INTELLIGENCE_ROOT:-$(python -c 'import genius_intelligence; import os; print(os.path.dirname(genius_intelligence.__file__))' 2>/dev/null || echo '')}"
+if command -v python3 >/dev/null 2>&1; then
+    _GENIUS_PY="python3"
+elif command -v python >/dev/null 2>&1; then
+    _GENIUS_PY="python"
+else
+    return 0 2>/dev/null || exit 0
+fi
+
+_GENIUS_ROOT="${GENIUS_INTELLIGENCE_ROOT:-$($_GENIUS_PY -c 'import genius_intelligence; import os; print(os.path.dirname(genius_intelligence.__file__))' 2>/dev/null || echo '')}"
 
 # =============================================================================
 # 지원 CLI 목록 (이 목록에 있는 CLI만 감싸짐)
@@ -78,7 +95,7 @@ genius_wrap() {
 
     genius_log "Wrapping: $cmd $@"
 
-    python -m genius_intelligence.auto.universal "$cmd" "$@"
+    $_GENIUS_PY -m genius_intelligence.auto.universal "$cmd" "$@"
     return $?
 }
 
@@ -160,13 +177,13 @@ genius-run() {
     fi
 
     echo "[genius] Force wrapping: $cmd $@" >&2
-    python -m genius_intelligence.auto.universal "$cmd" "$@"
+    $_GENIUS_PY -m genius_intelligence.auto.universal "$cmd" "$@"
     return $?
 }
 
 # 상태 확인
 genius-status() {
-    python -c "
+    $_GENIUS_PY -c "
 from genius_intelligence import GeniusIntelligence
 genius = GeniusIntelligence.for_current_project()
 stats = genius.get_stats()
@@ -180,7 +197,7 @@ print(f'Sessions: {stats.get(\"total_sessions\", 0)}')
 
 # 검색
 genius-search() {
-    python -c "
+    $_GENIUS_PY -c "
 import sys
 from genius_intelligence import GeniusIntelligence
 query = ' '.join(sys.argv[1:]) if len(sys.argv) > 1 else ''
@@ -200,12 +217,12 @@ else:
 
 # 트리
 genius-tree() {
-    python -c "
+    $_GENIUS_PY -c "
 from genius_intelligence import GeniusIntelligence
 from genius_intelligence.utils.helpers import format_tree
 genius = GeniusIntelligence.for_current_project()
 print(format_tree(tree))
-" 2>/dev/null || python -c "
+" 2>/dev/null || $_GENIUS_PY -c "
 from genius_intelligence import GeniusIntelligence
 genius = GeniusIntelligence.for_current_project()
 tree = genius.get_tree()
@@ -216,7 +233,7 @@ print(format_tree(tree))
 
 # 정리
 genius-cleanup() {
-    python -c "
+    $_GENIUS_PY -c "
 from genius_intelligence import GeniusIntelligence
 genius = GeniusIntelligence.for_current_project()
 result = genius.cleaner.cleanup()
@@ -226,7 +243,7 @@ print(f'Cleaned up {result[\"deleted\"]} nodes')
 
 # 초기화
 genius-init() {
-    python -c "
+    $_GENIUS_PY -c "
 from genius_intelligence import GeniusIntelligence
 genius = GeniusIntelligence.for_current_project()
 print(f'Initialized: {genius.project_root}')

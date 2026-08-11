@@ -66,7 +66,7 @@ Genius Intelligence Library
 
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "Genius Intelligence Team"
 
 from .core.manager import GeniusIntelligence

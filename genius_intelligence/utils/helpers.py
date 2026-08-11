@@ -14,11 +14,18 @@ from typing import Any
 
 
 def setup_logging(level: str = "INFO") -> logging.Logger:
-    """로깅 설정"""
+    """
+    로깅 설정
+
+    CLI 관례상 로그/진단 메시지는 반드시 stderr로 보냅니다.
+    stdout은 `genius shell-init` 같이 실제 셸에서 eval/source 될 수 있는
+    "순수한 출력"을 위해 깨끗하게 비워둬야 합니다. (stdout에 로그가 섞이면
+    `eval "$(genius shell-init)"` 같은 셸 통합이 문법 오류를 일으킵니다.)
+    """
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format="[%(levelname)s] %(name)s: %(message)s",
-        stream=sys.stdout,
+        stream=sys.stderr,
     )
     return logging.getLogger("genius_intelligence")
 

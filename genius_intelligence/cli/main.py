@@ -21,12 +21,18 @@ from ..utils.helpers import format_tree, pretty_print_stats, setup_logging
 @click.option("--verbose", "-v", is_flag=True, help="상세 출력")
 @click.pass_context
 def cli(ctx, project, verbose):
+    """
+    genius CLI 그룹 콜백
+
+    주의: 여기서는 GeniusIntelligence 전체 인스턴스를 미리 만들지 않습니다.
+    `shell-init`, `--help` 같은 순수 정적 명령까지 매번 DB 연결/플랜 감시
+    스레드를 켜는 부작용이 생기고, 로그가 stdout에 섞여 `eval "$(genius
+    shell-init)"` 같은 셸 통합이 깨질 수 있기 때문입니다. 프로젝트 경로만
+    저장해두고, 실제로 필요한 서브커맨드에서 각자 초기화합니다.
+    """
     ctx.ensure_object(dict)
     setup_logging("DEBUG" if verbose else "INFO")
-    if project is None:
-        project = GeniusIntelligence.find_project_root() or "."
     ctx.obj["project"] = project
-    ctx.obj["genius"] = GeniusIntelligence.for_current_project(project)
 
 
 @cli.command()
@@ -186,17 +192,21 @@ def wrap(cli_tool, args, project):
 
 @cli.command()
 def shell_init():
-    """Bash 셸 통합 스크립트 출력
+    """셸 통합 스니펫 출력 (POSIX sh/dash/bash/zsh 모두 호환)
 
     사용법:
         eval "$(genius shell-init)"
+
+    주의: 이 명령의 출력은 stdout으로만 나가야 하며, eval로 그대로
+    실행되므로 절대 로그/진단 메시지를 여기서 print 하지 마세요.
+    또한 "source"는 bash/zsh 전용이라 dash 등에서 실패하므로
+    POSIX 표준 "." (dot) 커맨드를 사용합니다.
     """
-    import os
     shell_script = Path(__file__).parent.parent / "shell" / "genius.sh"
     if shell_script.exists():
         script_path = str(shell_script)
         print("# Genius Intelligence Shell Integration")
-        print(f"source {script_path}")
+        print(f'. "{script_path}"')
     else:
         click.echo("Error: Shell script not found", err=True)
         sys.exit(1)
