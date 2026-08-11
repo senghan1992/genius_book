@@ -7,15 +7,35 @@
 ## 🚀 1분 설치
 
 ```bash
-# Linux/macOS
-# 짧은 URL (권장)
+# Linux / macOS — omp.sh 스타일 한 줄 설치 (질문 없음, 자동으로 시스템 PATH에 설치)
 curl -fsSL https://senghan1992.github.io/genius_book/install | sh
 
-# 또는 GitHub raw URL로도 동일하게 동작
-curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh
+# Windows
+irm https://raw.githubusercontent.com/senghan1992/genius_book/main/install.ps1 | iex
+```
 
-# pip로 직접 설치
-pip install genius-intelligence[cli]
+설치 끝나면 새 셸을 열고 바로 `genius` 명령이 동작합니다.
+`claude`, `omp`, `opencode`, `codex`, `aider` 같은 코딩 어시스턴트를 실행하면 자동으로 Genius Intelligence 와 함께 동작합니다.
+
+설치 방식(고급):
+
+```bash
+# 방식을 명시적으로 지정하고 싶을 때만 (기본값은 환경에 맞춰 자동 선택)
+curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=pipx
+curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=user
+curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=global
+curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=venv
+```
+
+자동 선택 우선순위:
+1. `pipx` — 깔끔한 격리 설치, 가장 추천 (있으면 자동 사용)
+2. `--user` — sudo 없이 사용자 환경에 설치 (대부분의 Linux/macOS)
+3. `venv` — 위 둘이 모두 막힌 시스템(Debian/Ubuntu PEP 668)에서 안전한 fallback
+
+제거:
+
+```bash
+curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --uninstall
 ```
 
 ## 핵심 기능
@@ -101,9 +121,16 @@ print(score.is_plan, score.score, score.signals)
 ## 빠른 시작
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh
-source ~/.bashrc
-claude --no-input   # 어떤 이름의 플랜 문서를 만들어도 자동 추적
+# 한 줄 설치 (질문 없이 끝남)
+curl -fsSL https://senghan1992.github.io/genius_book/install | sh
+
+# 새 셸 열기 (PATH 자동 적용)
+exec $SHELL
+
+# 코딩 어시스턴트 실행 — Genius 가 자동으로 모든 명령을 추적
+claude --no-input
+omp
+opencode
 ```
 
 ## Python API
