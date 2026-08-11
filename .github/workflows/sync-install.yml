@@ -1,0 +1,37 @@
+name: Sync install script
+
+# install.sh 가 수정될 때마다, 확장자 없는 'install' 파일(짧은 URL /
+# 커스텀 도메인용, 예: curl -fsSL https://<domain>/install | sh)을
+# 항상 동일한 내용으로 자동 동기화합니다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "install.sh"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy install.sh -> install (no extension)
+        run: |
+          cp install.sh install
+          chmod +x install
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- install; then
+            git add install
+            git commit -m "chore: sync install <- install.sh [skip ci]"
+            git push
+          else
+            echo "No changes to sync."
+          fi
