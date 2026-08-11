@@ -1,6 +1,6 @@
 # Genius Intelligence - Windows Installer
 # Usage:
-#   irm https://.../install.ps1 | iex
+#   irm https://raw.githubusercontent.com/senghan1992/genius_book/main/install.ps1 | iex
 #   # 또는
 #   .\install.ps1
 
@@ -23,7 +23,7 @@ function Show-Help {
 Genius Intelligence Installer
 
 사용법:
-    irm https://.../install.ps1 | iex
+    irm https://raw.githubusercontent.com/senghan1992/genius_book/main/install.ps1 | iex
     .\install.ps1
 
 옵션:

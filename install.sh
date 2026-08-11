@@ -3,7 +3,7 @@
 # Genius Intelligence - Installer
 # =============================================================================
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/genius-intelligence/genius-intelligence/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh
 #   # 또는
 #   curl -fsSL https://your-domain.com/install.sh | sh
 # =============================================================================
@@ -11,7 +11,7 @@
 set -e
 
 GENIUS_VERSION="0.1.0"
-GENIUS_REPO="genius-intelligence/genius-intelligence"
+GENIUS_REPO="senghan1992/genius_book"
 INSTALL_URL="https://raw.githubusercontent.com/${GENIUS_REPO}/main/install.sh"
 
 # 색상
@@ -44,9 +44,9 @@ show_help() {
 Genius Intelligence Installer
 
 사용법:
-    curl -fsSL https://.../install.sh | sh
-    curl -fsSL https://.../install.sh | sh -s -- --help
-    curl -fsSL https://.../install.sh | sh -s -- --uninstall
+    curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh -s -- --help
+    curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh -s -- --uninstall
 
 옵션:
     --help          이 도움말 표시
@@ -57,13 +57,13 @@ Genius Intelligence Installer
 
 예시:
     # 기본 설치
-    curl -fsSL https://.../install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh
 
     # 대화형 설치
-    curl -fsSL https://.../install.sh | sh -s
+    curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh -s
 
     # 제거
-    curl -fsSL https://.../install.sh | sh -s -- --uninstall
+    curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh -s -- --uninstall
 EOF
 }
 

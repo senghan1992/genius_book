@@ -8,7 +8,7 @@
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/genius-intelligence/genius-intelligence/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh
 
 # pip로 직접 설치
 pip install genius-intelligence[cli]
@@ -97,7 +97,7 @@ print(score.is_plan, score.score, score.signals)
 ## 빠른 시작
 
 ```bash
-curl -fsSL https://.../install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh
 source ~/.bashrc
 claude --no-input   # 어떤 이름의 플랜 문서를 만들어도 자동 추적
 ```
