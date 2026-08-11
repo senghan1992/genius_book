@@ -5,10 +5,13 @@
 # POSIX sh 호환 스크립트입니다. bash, dash, zsh, ash(alpine) 등에서 모두
 # 동작하도록 [[ ]], =~, 배열, read -p/-n, &> 등 bash 전용 문법을 사용하지 않습니다.
 #
-# Usage:
+# Usage (짧은 URL, 권장):
+#   curl -fsSL https://senghan1992.github.io/genius_book/install | sh
+#   curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --help
+#   curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --uninstall
+#
+# GitHub raw URL로도 동일하게 동작합니다:
 #   curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh
-#   curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh -s -- --help
-#   curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh -s -- --uninstall
 #
 # 설치 방식은 대화형 메뉴로 사용자가 직접 선택합니다 (전역 / 가상환경 / pipx / --user).
 # 비대화형(파이프+터미널 없음) 환경에서는 GENIUS_INSTALL_MODE 로 미리 지정하거나,
@@ -58,10 +61,13 @@ show_help() {
     cat << EOF
 Genius Intelligence Installer
 
-사용법:
+사용법 (짧은 URL, 권장):
+    curl -fsSL https://senghan1992.github.io/genius_book/install | sh
+    curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --help
+    curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --uninstall
+
+또는 GitHub raw URL로도 동일하게 동작합니다:
     curl -fsSL https://raw.githubusercontent.com/${GENIUS_REPO}/main/install.sh | sh
-    curl -fsSL https://raw.githubusercontent.com/${GENIUS_REPO}/main/install.sh | sh -s -- --help
-    curl -fsSL https://raw.githubusercontent.com/${GENIUS_REPO}/main/install.sh | sh -s -- --uninstall
 
 옵션:
     --help              이 도움말 표시
@@ -79,13 +85,13 @@ Genius Intelligence Installer
 
 예시:
     # 대화형 설치 (설치 방식을 직접 선택)
-    curl -fsSL https://raw.githubusercontent.com/${GENIUS_REPO}/main/install.sh | sh
+    curl -fsSL https://senghan1992.github.io/genius_book/install | sh
 
     # 비대화형: 방식을 미리 지정해서 질문 없이 설치
-    curl -fsSL https://raw.githubusercontent.com/${GENIUS_REPO}/main/install.sh | sh -s -- --mode=pipx
+    curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=pipx
 
     # 제거
-    curl -fsSL https://raw.githubusercontent.com/${GENIUS_REPO}/main/install.sh | sh -s -- --uninstall
+    curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --uninstall
 EOF
 }
 

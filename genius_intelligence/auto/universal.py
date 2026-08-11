@@ -249,7 +249,11 @@ class UniversalWrapper:
             # 프로세스 종료 대기
             returncode = self._process.wait()
 
-            stderr_thread.join(timeout=0.5)
+            # 중요: 프로세스가 빨리 끝나도, 파이프에 남아있는 마지막 출력을
+            # 리더 스레드가 다 읽어서 화면에 전달할 시간을 반드시 줘야 합니다.
+            # (여기서 join을 안 하면 마지막 몇 줄의 출력이 잘려서 사라질 수 있음)
+            self._reader_thread.join(timeout=5)
+            stderr_thread.join(timeout=5)
 
             return returncode
 
@@ -294,15 +298,29 @@ class UniversalWrapper:
         return None
 
     def _read_output(self, stream, is_stderr: bool) -> None:
-        """출력 스트림 읽기 및 파싱"""
+        """
+        출력 스트림 읽기, 사용자 터미널로 즉시 전달(중요!), 그리고 이벤트 파싱
+
+        주의: 감싸는 대상 CLI(claude, omp 등)의 실제 출력을 여기서 즉시
+        원래 스트림(stdout/stderr)으로 그대로 흘려보내야 합니다. 그렇지 않으면
+        사용자는 감싸인 도구의 응답을 전혀 볼 수 없게 되어(UniversalWrapper가
+        출력을 삼켜버리는 상태) 실사용이 불가능해집니다. 이벤트 파싱/버퍼링은
+        "부가 기능"이고, 출력 전달이 "핵심 기능"입니다.
+        """
+        out_stream = sys.stderr if is_stderr else sys.stdout
+
         for line in iter(stream.readline, ""):
             if not line:
                 break
 
-            # 버퍼에 추가
+            # 1. 사용자에게 즉시 그대로 전달 (가장 중요)
+            out_stream.write(line)
+            out_stream.flush()
+
+            # 2. 버퍼에 추가 (지식화용)
             self._output_buffer += line
 
-            # 범용 파싱
+            # 3. 범용 파싱 -> 이벤트 추출
             events = self._parse_line(line, is_stderr=is_stderr)
 
             for event in events:

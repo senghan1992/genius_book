@@ -8,6 +8,10 @@
 
 ```bash
 # Linux/macOS
+# 짧은 URL (권장)
+curl -fsSL https://senghan1992.github.io/genius_book/install | sh
+
+# 또는 GitHub raw URL로도 동일하게 동작
 curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh
 
 # pip로 직접 설치

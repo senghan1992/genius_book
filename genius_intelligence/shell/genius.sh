@@ -6,10 +6,20 @@
 #
 # 사용법:
 #   . /path/to/genius_intelligence_shell.sh
-#   # 또는
+#   # 또는 (권장)
 #   eval "$(genius shell-init)"
 #
 # 기본으로 감싸지는 CLI: claude, omp, opencode, aider, codex, cursor 등
+#
+# 중요한 설계 원칙:
+#   이 스크립트는 절대로 "python3 -m ..." 같이 파이썬 인터프리터를 직접
+#   추측해서 호출하지 않습니다. 오직 `genius` 명령(PATH에 있는 것)에만
+#   위임합니다. 이유: install.sh 는 사용자가 고른 방식(전역/venv/pipx/user)에
+#   따라 genius_intelligence 패키지를 서로 다른 파이썬 환경에 설치하지만,
+#   어떤 방식이든 항상 `genius` 실행 파일 하나는 PATH에서 올바르게 그
+#   환경을 가리키도록 보장합니다 (venv는 래퍼 스크립트, pipx는 자체 shim 등).
+#   만약 여기서 시스템 python3를 직접 불렀다면, venv/pipx로 격리 설치한
+#   경우 시스템 python3에는 패키지가 없어서 ModuleNotFoundError로 깨집니다.
 #
 # 주의: 이 스크립트는 배열, [[ ]], bash completion 등 bash/zsh 전용 기능을
 # 사용합니다. 순수 POSIX sh/dash 대화형 셸(예: 일부 배포판의 기본 로그인 셸)
@@ -21,17 +31,11 @@ if [ -z "${BASH_VERSION:-}" ] && [ -z "${ZSH_VERSION:-}" ]; then
     return 0 2>/dev/null || exit 0
 fi
 
-set -e
-
-if command -v python3 >/dev/null 2>&1; then
-    _GENIUS_PY="python3"
-elif command -v python >/dev/null 2>&1; then
-    _GENIUS_PY="python"
-else
+# genius 실행 파일이 PATH에 없으면 아무 것도 하지 않고 조용히 종료
+# (설치가 덜 됐거나, PATH 갱신 전 상태일 수 있음. 에러로 셸을 방해하지 않음)
+if ! command -v genius >/dev/null 2>&1; then
     return 0 2>/dev/null || exit 0
 fi
-
-_GENIUS_ROOT="${GENIUS_INTELLIGENCE_ROOT:-$($_GENIUS_PY -c 'import genius_intelligence; import os; print(os.path.dirname(genius_intelligence.__file__))' 2>/dev/null || echo '')}"
 
 # =============================================================================
 # 지원 CLI 목록 (이 목록에 있는 CLI만 감싸짐)
@@ -79,23 +83,21 @@ genius_log() {
     fi
 }
 
-# 지원 CLI만 감싸기
+# 지원 CLI만 감싸기 (항상 `genius wrap` 명령에 위임)
 genius_wrap() {
     local cmd="$1"
     shift
 
-    # 지원 목록 체크
     if ! genius_is_supported "$cmd"; then
         echo "[genius] Skipping: '$cmd' is not in supported CLIs" >&2
-        echo "[genius] Use 'genius run <cmd>' to force wrapping" >&2
-        # 그냥 일반 명령으로 실행
-        "$cmd" "$@"
+        echo "[genius] Use 'genius-run $cmd ...' to force wrapping" >&2
+        command "$cmd" "$@"
         return $?
     fi
 
-    genius_log "Wrapping: $cmd $@"
+    genius_log "Wrapping: $cmd $*"
 
-    $_GENIUS_PY -m genius_intelligence.auto.universal "$cmd" "$@"
+    genius wrap "$cmd" -- "$@"
     return $?
 }
 
@@ -153,7 +155,7 @@ continue() {
 }
 
 # =============================================================================
-# 유틸리티
+# 유틸리티 (모두 `genius` 실행 파일에 위임 - 설치 방식과 무관하게 항상 동작)
 # =============================================================================
 
 # 지원 CLI 목록 보기
@@ -176,79 +178,29 @@ genius-run() {
         return 1
     fi
 
-    echo "[genius] Force wrapping: $cmd $@" >&2
-    $_GENIUS_PY -m genius_intelligence.auto.universal "$cmd" "$@"
+    echo "[genius] Force wrapping: $cmd $*" >&2
+    genius wrap --force "$cmd" -- "$@"
     return $?
 }
 
-# 상태 확인
 genius-status() {
-    $_GENIUS_PY -c "
-from genius_intelligence import GeniusIntelligence
-genius = GeniusIntelligence.for_current_project()
-stats = genius.get_stats()
-print('Genius Intelligence Status')
-print('=' * 40)
-print(f'Project: {genius.project_root}')
-print(f'Active Nodes: {stats.get(\"total_active_nodes\", 0)}')
-print(f'Sessions: {stats.get(\"total_sessions\", 0)}')
-"
+    genius status
 }
 
-# 검색
 genius-search() {
-    $_GENIUS_PY -c "
-import sys
-from genius_intelligence import GeniusIntelligence
-query = ' '.join(sys.argv[1:]) if len(sys.argv) > 1 else ''
-genius = GeniusIntelligence.for_current_project()
-if not query:
-    print('Usage: genius-search <query>')
-    sys.exit(1)
-results = genius.search_knowledge(query, limit=5)
-if not results:
-    print(f'No results for: {query}')
-else:
-    print(f'Results for: {query}')
-    for node in results:
-        print(f'  [{node.knowledge_type.value}] {node.name} - {node.domain}')
-" "$@"
+    genius search "$@"
 }
 
-# 트리
 genius-tree() {
-    $_GENIUS_PY -c "
-from genius_intelligence import GeniusIntelligence
-from genius_intelligence.utils.helpers import format_tree
-genius = GeniusIntelligence.for_current_project()
-print(format_tree(tree))
-" 2>/dev/null || $_GENIUS_PY -c "
-from genius_intelligence import GeniusIntelligence
-genius = GeniusIntelligence.for_current_project()
-tree = genius.get_tree()
-from genius_intelligence.utils.helpers import format_tree
-print(format_tree(tree))
-"
+    genius tree
 }
 
-# 정리
 genius-cleanup() {
-    $_GENIUS_PY -c "
-from genius_intelligence import GeniusIntelligence
-genius = GeniusIntelligence.for_current_project()
-result = genius.cleaner.cleanup()
-print(f'Cleaned up {result[\"deleted\"]} nodes')
-"
+    genius cleanup "$@"
 }
 
-# 초기화
 genius-init() {
-    $_GENIUS_PY -c "
-from genius_intelligence import GeniusIntelligence
-genius = GeniusIntelligence.for_current_project()
-print(f'Initialized: {genius.project_root}')
-print(f'Knowledge dir: {genius.config.genius_dir_name}')
-"
+    genius init
 }
 
 # =============================================================================

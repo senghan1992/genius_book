@@ -171,23 +171,37 @@ def integrate():
 @click.argument("cli_tool")
 @click.argument("args", nargs=-1)
 @click.option("--project", "-p", default=None, help="프로젝트 경로")
-def wrap(cli_tool, args, project):
+@click.option("--force", "-f", is_flag=True,
+              help="지원 목록에 없는 CLI도 강제로 감싸기")
+def wrap(cli_tool, args, project, force):
     """코딩 어시스턴트 CLI를 Genius Intelligence와 함께 실행
+
+    이 명령은 install.sh 가 어떤 방식으로 설치했든(global/venv/pipx/user)
+    항상 올바른 파이썬 인터프리터로 실행되도록 보장되는 유일한 진입점입니다.
+    셸 통합 스크립트(genius.sh)는 반드시 이 명령을 통해서만 CLI를 감싸며,
+    "python3 -m ..." 같이 시스템 파이썬을 직접 추측해서 호출하지 않습니다.
+    (venv/pipx로 격리 설치한 경우 시스템 파이썬에는 패키지가 없어서
+    직접 호출하면 ModuleNotFoundError로 깨지기 때문입니다.)
 
     예시:
         genius wrap claude --no-input
         genius wrap omp --project .
         genius wrap aider main.py
+        genius wrap --force some-unlisted-cli
     """
-    from ..auto.wrapper import wrap_cli
-    import os
+    from ..auto.universal import UniversalWrapper
+    from ..core.manager import GeniusIntelligence
 
     if project is None:
-        from ..core.manager import GeniusIntelligence
         project = GeniusIntelligence.find_project_root() or "."
 
+    supported_clis = None
+    if force:
+        supported_clis = UniversalWrapper.DEFAULT_SUPPORTED_CLIS | {cli_tool}
+
+    wrapper = UniversalWrapper(project, supported_clis=supported_clis)
     cmd = [cli_tool] + list(args)
-    sys.exit(wrap_cli(cmd, project_root=project))
+    sys.exit(wrapper.run(cmd))
 
 
 @cli.command()
