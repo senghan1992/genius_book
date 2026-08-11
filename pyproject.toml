@@ -1,0 +1,79 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "genius-intelligence"
+version = "0.1.0"
+description = "코딩 어시스턴트용 프로젝트 단위 지식화 라이브러리"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Genius Intelligence Team" }
+]
+keywords = [
+    "coding-assistant",
+    "knowledge-management",
+    "claude-code",
+    "omp",
+    "opencode",
+    "codex",
+    "ai-agent",
+    "project-memory",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.9",
+]
+cli = [
+    "click>=8.1",
+    "rich>=13.7",
+]
+
+[project.scripts]
+genius = "genius_intelligence.cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/genius-intelligence/genius-intelligence"
+Documentation = "https://github.com/genius-intelligence/genius-intelligence#readme"
+Repository = "https://github.com/genius-intelligence/genius-intelligence"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/genius_intelligence",
+    "README.md",
+    "LICENSE",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["genius_intelligence"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = false

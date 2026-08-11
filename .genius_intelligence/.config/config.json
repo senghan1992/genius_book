@@ -1,0 +1,27 @@
+{
+  "genius_dir_name": ".genius_intelligence",
+  "max_depth": 2,
+  "auto_knowledge_threshold": 3,
+  "stale_days": 30,
+  "auto_cleanup_enabled": true,
+  "cleanup_interval_hours": 24,
+  "log_level": "INFO",
+  "enable_login_tracking": true,
+  "ask_before_login_save": true,
+  "supported_cli_tools": [
+    "claude",
+    "claude-code",
+    "omp",
+    "opencode",
+    "codex",
+    "aider",
+    "cursor",
+    "copilot"
+  ],
+  "auto_domain_detection": true,
+  "custom_domains": [],
+  "context_window_size": 10,
+  "knowledge_format": "markdown",
+  "index_file_name": "_index.md",
+  "_saved_at": "2026-08-11T05:51:20.499728"
+}
