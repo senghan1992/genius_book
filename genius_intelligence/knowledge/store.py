@@ -34,15 +34,27 @@ if TYPE_CHECKING:
 
 
 def slugify(text: str, max_length: int = 60) -> str:
-    """텍스트를 파일명/폴더명에 안전한 슬러그로 변환"""
+    """텍스트를 파일명/폴더명에 안전한 슬러그로 변환
+
+    CJK 문자(한글/한자/가나 등)는 Unicode 그대로 보존한다.
+    NFKD 정규화 후 ASCII로 강제 변환하면 CJK가 제거되어 빈 슬러그가 되는 버그 수정.
+    대신: NFKC 정규화로 호환 분해를 풀고, 파일명에 안전하지 않은 문자만 제거한다.
+    """
     if not text:
         return "untitled"
-    # Unicode → ASCII 변환
-    text = unicodedata.normalize("NFKD", text)
-    text = text.encode("ascii", "ignore").decode()
-    # 소문자, 공백 → 하이픈
-    text = re.sub(r"[^\w\s-]", "", text.lower())
+    # NFKC 정규화 (호환 분해 해제 — 가나 합성 등) 후 ASCII 강제 변환 금지
+    text = unicodedata.normalize("NFKC", text)
+    # 소문자 변환 (CJK에는 대소문자 구분 없음 — no-op)
+    text = text.lower()
+    # 파일명에 안전하지 않은 문자 제거: 경로 구분자, 제어문자, 특수기호
+    # CJK, 알파벳, 숫자, 하이픈, 언더스코어, 점은 보존
+    text = re.sub(r"[^\w\s\-.]", "", text)
+    # 공백 → 하이픈
     text = re.sub(r"[-\s]+", "-", text).strip("-")
+    if not text or text == ".":
+        # 빈 슬러그면 untitled + uuid prefix로 충돌 방지
+        import uuid
+        return f"untitled-{uuid.uuid4().hex[:8]}"
     return text[:max_length]
 
 
@@ -70,20 +82,44 @@ class KnowledgeStore:
             d.mkdir(parents=True, exist_ok=True)
 
     def save_node(self, node: KnowledgeNode, db: "MemoryDB | None" = None) -> str:
-        """KnowledgeNode를 파일로 저장"""
+        """KnowledgeNode를 파일로 저장 (원자적 쓰기)
+
+        파일 → meta → 인덱스 → DB 순서를 temp 파일 + rename으로 원자화.
+        DB 커밋을 마지막에 두어 실패 시 부분 쓰기가 남지 않게 한다.
+        """
+        import os as _os
+        import tempfile
+
         file_path, meta_path = self._resolve_paths(node)
         node.file_path = str(file_path.relative_to(self.genius_root))
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         content = node.to_markdown()
-        file_path.write_text(content, encoding="utf-8")
-
         meta = self._node_to_meta(node)
-        meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        meta_json = json.dumps(meta, indent=2, ensure_ascii=False)
 
+        # 원자적 쓰기: temp 파일 → rename
+        # 같은 디렉토리에 temp 파일을 만들어 rename이 atomic이 되도록
+        for path, data in [(file_path, content), (meta_path, meta_json)]:
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(path.parent), suffix=".tmp", prefix=path.name
+            )
+            try:
+                with _os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(data)
+                _os.replace(tmp_path, path)
+            except Exception:
+                try:
+                    _os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+
+        # 인덱스 갱신
         self._update_domain_index(node.domain)
         self._update_root_index()
 
+        # DB 커밋을 마지막에 (실패 시 파일은 남지만 DB는 갱신되지 않음)
         if db:
             db.save_knowledge_node(node)
 

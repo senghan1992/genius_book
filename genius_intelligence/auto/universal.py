@@ -49,15 +49,12 @@ GENERIC_PATTERNS = {
         r"deprecated:",
     ],
     "command": [
-        # 명령어 실행 패턴
+        # 명령어 실행 패턴 (마크다운 # 헤더, > 인용을 오탐하지 않도록 제거)
         r"^\s*\$\s+(.+)",
-        r"^\s*>\s+(.+)",
-        r"^\s*#\s+(.+)",
         r"Running:\s+(.+)",
         r"Executing:\s+(.+)",
         r"Executing command:\s+(.+)",
         r"shell:\s+(.+)",
-        r"bash.*\$",
     ],
     "file_change": [
         # 파일 변경 패턴
@@ -179,6 +176,9 @@ class UniversalWrapper:
         """
         CLI 명령 실행 (지정된 CLI만 감싸기)
 
+        TTY(인터랙티브) 환경에서는 감싸기에서 제외하고 원본 실행(폴백).
+        비-TTY(헤드리스) 환경에서만 파이프로 감싼다.
+
         Args:
             args: 실행할 명령 (예: ["claude", "--no-input"])
 
@@ -196,7 +196,8 @@ class UniversalWrapper:
             print(f"[genius] Supported: {', '.join(sorted(self.supported_clis))}", file=sys.stderr)
             print(f"[genius] Run directly without wrapping, or add it to config.", file=sys.stderr)
             # 지원되지 않으면 일반 명령으로 실행 (감싸지 않음)
-            return subprocess.run(args, cwd=str(self.project_root)).returncode
+            # cwd를 강제하지 않고 호출자의 cwd를 그대로 전달
+            return subprocess.run(args).returncode
 
         cmd_path = self._find_command(cmd)
         if cmd_path is None:
@@ -204,7 +205,27 @@ class UniversalWrapper:
 
         actual_args = [cmd_path] + list(args[1:])
 
-        print(f"[genius] Running: {' '.join(shlex.quote(a) for a in actual_args)}", 
+        # TTY 감지: stdin이 TTY면 인터랙티브 TUI — 파이프로 감싸면 깨짐.
+        # 원본 실행으로 폴백 (경고 후), 세션만 추적.
+        is_tty = sys.stdin.isatty() if hasattr(sys.stdin, "isatty") else False
+        if is_tty:
+            print(f"[genius] Interactive TTY detected for '{cmd}'. "
+                  f"Running without wrapping to preserve TUI.", file=sys.stderr)
+            env = os.environ.copy()
+            env["GENIUS_INTELLIGENCE_ENABLED"] = "1"
+            env["GENIUS_PROJECT_ROOT"] = str(self.project_root)
+            # cwd를 강제하지 않음 — 호출자의 cwd를 그대로 자식에 전달
+            try:
+                result = subprocess.run(actual_args, env=env)
+                return result.returncode
+            except FileNotFoundError:
+                print(f"[genius] Error: Command not found: {cmd}", file=sys.stderr)
+                return 127
+            finally:
+                if self.genius:
+                    self.genius.flush()
+
+        print(f"[genius] Running: {' '.join(shlex.quote(a) for a in actual_args)}",
               file=sys.stderr)
 
         # 환경 변수
@@ -213,14 +234,15 @@ class UniversalWrapper:
         env["GENIUS_PROJECT_ROOT"] = str(self.project_root)
 
         try:
-            # 실제 I/O 가로채기
+            # 헤드리스(비-TTY) 실행: 파이프로 감싸기
             self._process = subprocess.Popen(
                 actual_args,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env,
-                cwd=str(self.project_root),
+                # cwd를 강제하지 않음 — 호출자의 cwd를 그대로 자식에 전달
+                # 프로젝트 루트는 GENIUS_PROJECT_ROOT env로만 전달
                 text=True,
                 bufsize=1,  # 라인 버퍼링
             )
@@ -251,7 +273,6 @@ class UniversalWrapper:
 
             # 중요: 프로세스가 빨리 끝나도, 파이프에 남아있는 마지막 출력을
             # 리더 스레드가 다 읽어서 화면에 전달할 시간을 반드시 줘야 합니다.
-            # (여기서 join을 안 하면 마지막 몇 줄의 출력이 잘려서 사라질 수 있음)
             self._reader_thread.join(timeout=5)
             stderr_thread.join(timeout=5)
 
@@ -342,8 +363,9 @@ class UniversalWrapper:
         if not line:
             return events
 
-        # 에러 감지
-        if is_stderr or self._is_error_line(line):
+        # 에러 감지: stderr든 stdout이든 에러 패턴과 일치할 때만 이벤트화.
+        # (이전에는 is_stderr 전체를 에러로 몰아넣었음 — 경고/디버그도 에러로 오탐)
+        if self._is_error_line(line):
             events.append({
                 "type": "error",
                 "content": line[:500],
@@ -440,13 +462,18 @@ class UniversalWrapper:
                 break
             except KeyboardInterrupt:
                 self._handle_interrupt()
+                # SIGINT 후 종료코드 130 반환 (음수가 아님)
+                sys.exit(130)
                 break
 
     def _handle_interrupt(self) -> None:
-        """SIGINT 처리"""
+        """SIGINT 처리 — 자식에 SIGINT 전달"""
         print("\\n[genius] Interrupted, flushing session...", file=sys.stderr)
         if self._process:
-            self._process.send_signal(signal.SIGINT)
+            try:
+                self._process.send_signal(signal.SIGINT)
+            except (ProcessLookupError, OSError):
+                pass
 
     def _emit_event(self, event: dict) -> None:
         """이벤트 방출"""
@@ -477,12 +504,14 @@ class UniversalWrapper:
             # 플랜 추적에도 전달
             self.plan_tracker.on_error(event.get("content", ""))
         elif etype == "command":
+            # success=True 하드코딩 제거 — 에러 이벤트가 아니면 성공으로 간주
+            success = not event.get("is_error", False)
             self.genius.on_command_executed(
                 event.get("content", ""),
-                success=True,
+                success=success,
             )
             # 플랜 추적에도 전달
-            self.plan_tracker.on_command_executed(event.get("content", ""))
+            self.plan_tracker.on_command_executed(event.get("content", ""), success=success)
         elif etype == "file_change":
             action = event.get("action", "")
             path = event.get("path", "")

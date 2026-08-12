@@ -163,19 +163,19 @@ class OMPParser(OutputParser):
         for line in output.split("\n"):
             if line.startswith("[AGENT]"):
                 if current_role and current_content:
-                    yield (current_role, "\\n".join(current_content))
+                    yield (current_role, "\n".join(current_content))
                 current_role = "assistant"
                 current_content = [line[7:].strip()]
             elif line.startswith("[USER]"):
                 if current_role and current_content:
-                    yield (current_role, "\\n".join(current_content))
+                    yield (current_role, "\n".join(current_content))
                 current_role = "user"
                 current_content = [line[6:].strip()]
             elif current_role:
                 current_content.append(line)
 
         if current_role and current_content:
-            yield (current_role, "\\n".join(current_content))
+            yield (current_role, "\n".join(current_content))
 
 
 class OpenCodeParser(OutputParser):
@@ -213,7 +213,7 @@ class OpenCodeParser(OutputParser):
 
     def extract_messages(self, output: str) -> Iterator[tuple[str, str]]:
         """OpenCode 메시지 추출"""
-        for block in output.split("\\n\\n"):
+        for block in output.split("\n\n"):
             if "User" in block or "user" in block[:20]:
                 yield ("user", block.strip())
             elif "Assistant" in block or "assistant" in block[:20]:
@@ -259,16 +259,16 @@ class AiderParser(OutputParser):
         in_assistant = False
         current = []
 
-        for line in output.split("\\n"):
+        for line in output.split("\n"):
             if "Human:" in line:
                 if current:
-                    yield ("assistant", "\\n".join(current))
+                    yield ("assistant", "\n".join(current))
                 current = [line.split(":", 1)[1].strip()]
                 in_assistant = False
                 in_user = True
             elif "Assistant:" in line:
                 if current:
-                    yield ("user", "\\n".join(current)) if in_user else None
+                    yield ("user", "\n".join(current)) if in_user else None
                 current = [line.split(":", 1)[1].strip()]
                 in_user = False
                 in_assistant = True
@@ -276,7 +276,7 @@ class AiderParser(OutputParser):
                 current.append(line)
 
         if current:
-            yield ("assistant" if in_assistant else "user", "\\n".join(current))
+            yield ("assistant" if in_assistant else "user", "\n".join(current))
 
 
 class GenericParser(OutputParser):

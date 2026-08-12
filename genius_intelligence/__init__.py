@@ -101,7 +101,14 @@ from .auto import (
     OutputParser,
     get_parser_for_tool,
     AgentWrapper,
+    UniversalWrapper,
     wrap_cli,
+)
+
+from .context import (
+    render_knowledge_context,
+    render_context_for_session_start,
+    write_context_file,
 )
 
 __all__ = [
@@ -114,7 +121,6 @@ __all__ = [
     "UniversalWrapper",
     "wrap_cli",
     "OutputParser",
-    "UniversalWrapper",
     "get_parser_for_tool",
     # Types
     "KnowledgeNode",
@@ -149,4 +155,8 @@ __all__ = [
     "is_genius_project",
     "format_tree",
     "pretty_print_stats",
+    # Context
+    "render_knowledge_context",
+    "render_context_for_session_start",
+    "write_context_file",
 ]

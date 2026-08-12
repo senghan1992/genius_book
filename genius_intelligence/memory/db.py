@@ -203,6 +203,20 @@ class MemoryDB:
                     reason TEXT DEFAULT 'stale'
                 );
 
+                CREATE TABLE IF NOT EXISTS session_events (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    content TEXT DEFAULT '',
+                    current_file TEXT DEFAULT '',
+                    current_directory TEXT DEFAULT '',
+                    event_metadata TEXT DEFAULT '{}',
+                    FOREIGN KEY (session_id) REFERENCES coding_sessions(id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_se_session ON session_events(session_id);
+
                 CREATE TABLE IF NOT EXISTS schema_version (
                     version INTEGER PRIMARY KEY,
                     applied_at TEXT NOT NULL
@@ -224,16 +238,42 @@ class MemoryDB:
     # ── Knowledge Node CRUD ────────────────────────────────────────────
 
     def save_knowledge_node(self, node: KnowledgeNode) -> None:
-        """지식 노드 저장/갱신"""
+        """지식 노드 저장/갱신
+
+        node_key가 같으면 기존 row를 UPDATE (id, created_at 보존).
+        INSERT OR REPLACE를 쓰면 새 id로 덮어써 usage_stats FK가 고아가 되므로,
+        ON CONFLICT(node_key) DO UPDATE로 안전하게 갱신한다.
+        """
+        now = datetime.now().isoformat()
+        node.updated_at = datetime.now()
         with self._conn() as conn:
             conn.execute("""
-                INSERT OR REPLACE INTO knowledge_nodes
+                INSERT INTO knowledge_nodes
                 (id, name, domain, topic, depth, knowledge_type, status,
                  description, raw_input, solution, error_trace, content,
                  tags, file_path, related_nodes, attempt_count, success_count,
                  fail_count, accessed_count, created_at, updated_at,
                  last_accessed_at, node_key, is_etc)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(node_key) DO UPDATE SET
+                    name=excluded.name,
+                    description=excluded.description,
+                    knowledge_type=excluded.knowledge_type,
+                    status=excluded.status,
+                    raw_input=excluded.raw_input,
+                    solution=excluded.solution,
+                    error_trace=excluded.error_trace,
+                    content=excluded.content,
+                    tags=excluded.tags,
+                    file_path=excluded.file_path,
+                    related_nodes=excluded.related_nodes,
+                    attempt_count=excluded.attempt_count,
+                    success_count=excluded.success_count,
+                    fail_count=excluded.fail_count,
+                    accessed_count=excluded.accessed_count,
+                    updated_at=excluded.updated_at,
+                    last_accessed_at=excluded.last_accessed_at,
+                    is_etc=excluded.is_etc
             """, (
                 node.id,
                 node.name,
@@ -255,7 +295,7 @@ class MemoryDB:
                 node.fail_count,
                 node.accessed_count,
                 node.created_at.isoformat(),
-                node.updated_at.isoformat(),
+                now,
                 node.last_accessed_at.isoformat(),
                 node.node_key,
                 1 if node.is_etc() else 0,
@@ -316,44 +356,31 @@ class MemoryDB:
                 )
 
     def get_stale_nodes(self, max_days: int = 30) -> list[KnowledgeNode]:
-        """오래된 노드 조회"""
-        import time
-        stale_threshold = datetime.now().timestamp() - (max_days * 86400)
+        """오래된 노드 조회 (UTC ISO8601 기반 비교)
+
+        last_accessed_at은 저장 시 UTC ISO8601로 쓰이므로,
+        비교도 UTC ISO8601 문자열로 통일한다.
+        """
+        from datetime import timezone, timedelta
+        now_utc = datetime.now(timezone.utc)
+        threshold = now_utc - timedelta(days=max_days)
+        threshold_str = threshold.isoformat()
 
         with self._conn() as conn:
             rows = conn.execute(
-                """SELECT * FROM knowledge_nodes 
-                   WHERE status = 'active' 
-                   AND last_accessed_at < datetime(?, 'unixepoch')
+                """SELECT * FROM knowledge_nodes
+                   WHERE status = 'active'
+                   AND last_accessed_at < ?
                    ORDER BY last_accessed_at ASC""",
-                (stale_threshold,)
+                (threshold_str,)
             ).fetchall()
 
         return [self._row_to_node(r) for r in rows]
 
     def bulk_save_nodes(self, nodes: list[KnowledgeNode]) -> None:
-        """여러 노드 일괄 저장"""
-        with self._conn() as conn:
-            for node in nodes:
-                conn.execute("""
-                    INSERT OR REPLACE INTO knowledge_nodes
-                    (id, name, domain, topic, depth, knowledge_type, status,
-                     description, raw_input, solution, error_trace, content,
-                     tags, file_path, related_nodes, attempt_count, success_count,
-                     fail_count, accessed_count, created_at, updated_at,
-                     last_accessed_at, node_key, is_etc)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    node.id, node.name, node.domain, node.topic, node.depth,
-                    node.knowledge_type.value, node.status.value,
-                    node.description, node.raw_input, node.solution,
-                    node.error_trace, node.content, json.dumps(node.tags),
-                    node.file_path, json.dumps(node.related_nodes),
-                    node.attempt_count, node.success_count, node.fail_count,
-                    node.accessed_count, node.created_at.isoformat(),
-                    node.updated_at.isoformat(), node.last_accessed_at.isoformat(),
-                    node.node_key, 1 if node.is_etc() else 0,
-                ))
+        """여러 노드 일괄 저장 — save_knowledge_node에 위임"""
+        for node in nodes:
+            self.save_knowledge_node(node)
 
     def _row_to_node(self, row: sqlite3.Row) -> KnowledgeNode:
         """DB Row → KnowledgeNode"""
@@ -405,6 +432,93 @@ class MemoryDB:
                 len(session.knowledge_candidates),
                 json.dumps(session.get_session_summary()),
             ))
+    def save_session_events(self, session: "CodingSession") -> None:
+        """세션 이벤트들을 DB에 영속화"""
+        if not session.events:
+            return
+        with self._conn() as conn:
+            for event in session.events:
+                conn.execute("""
+                    INSERT OR REPLACE INTO session_events
+                    (id, session_id, event_type, timestamp, content,
+                     current_file, current_directory, event_metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    event.id,
+                    session.id,
+                    event.event_type.value,
+                    event.timestamp.isoformat(),
+                    event.content[:500] if event.content else "",
+                    event.current_file,
+                    event.current_directory,
+                    json.dumps(event.event_metadata, ensure_ascii=False)
+                    if event.event_metadata else "{}",
+                ))
+
+    def save_attempt_records(self, session: "CodingSession") -> None:
+        """세션의 attempt_records들을 DB에 영속화"""
+        all_records = (
+            list(session.active_tasks.values()) +
+            session.completed_tasks +
+            session.knowledge_candidates
+        )
+        # 중복 제거
+        seen_ids = set()
+        unique_records = []
+        for record in all_records:
+            if record.id not in seen_ids:
+                seen_ids.add(record.id)
+                unique_records.append(record)
+
+        if not unique_records:
+            return
+        with self._conn() as conn:
+            for record in unique_records:
+                conn.execute("""
+                    INSERT OR REPLACE INTO attempt_records
+                    (id, session_id, task_description, attempts, successes,
+                     failures, final_status, solution, failure_pattern,
+                     root_cause, error_traces, first_attempt_at,
+                     last_attempt_at, resolved_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    record.id,
+                    session.id,
+                    record.task_description[:500] if record.task_description else "",
+                    record.attempts,
+                    record.successes,
+                    record.failures,
+                    record.final_status,
+                    record.solution[:1000] if record.solution else "",
+                    record.failure_pattern,
+                    record.root_cause,
+                    json.dumps(record.error_traces, ensure_ascii=False),
+                    record.first_attempt_at.isoformat() if record.first_attempt_at else None,
+                    record.last_attempt_at.isoformat() if record.last_attempt_at else None,
+                    record.resolved_at.isoformat() if record.resolved_at else None,
+                ))
+
+    def load_session_events(self, session_id: str) -> list[dict]:
+        """세션 이벤트 조회"""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM session_events
+                   WHERE session_id = ?
+                   ORDER BY timestamp ASC""",
+                (session_id,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def load_attempt_records(self, session_id: str) -> list[dict]:
+        """세션의 attempt records 조회"""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM attempt_records
+                   WHERE session_id = ?
+                   ORDER BY last_attempt_at ASC""",
+                (session_id,)
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def load_recent_sessions(self, limit: int = 10) -> list[dict]:
         """최근 세션 조회"""
@@ -517,6 +631,15 @@ class MemoryDB:
                 "total_login_info": total_login_info,
                 "domain_distribution": domain_counts,
             }
+
+    def get_usage_count(self, access_type: str = "read") -> int:
+        """usage_stats 기반 — 지식이 검색/주입된 횟수"""
+        with self._conn() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM usage_stats WHERE access_type = ?",
+                (access_type,)
+            ).fetchone()[0]
+        return count
 
 
 # ── 전역 DB 팩토리 ─────────────────────────────────────────────────────

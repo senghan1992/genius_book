@@ -115,11 +115,17 @@ class AttemptRecord:
     def should_knowledgeize(self) -> bool:
         """
         지식화해야 하는가?
-        - 3번 이상 시도 OR
+        - threshold 이상 시도 OR
         - 1번이라도 실패하고 사용자가 비슷한 요청을 반복한 경우
+
+        threshold 기본값 3은 config.auto_knowledge_threshold와 일치.
         """
-        return self.attempts >= 3 or (
-            self.final_status == "failed" and 
+        return self._should_knowledgeize_with_threshold(3)
+
+    def _should_knowledgeize_with_threshold(self, threshold: int = 3) -> bool:
+        """지식화 판정 (config에서 threshold 주입 가능)"""
+        return self.attempts >= threshold or (
+            self.final_status == "failed" and
             self.failures > 0
         )
 
@@ -183,9 +189,14 @@ class CodingSession:
 
         return record
 
-    def resolve_task(self, task_id: str, success: bool = True, 
-                     solution: str = "") -> AttemptRecord | None:
-        """태스크 해결 표시"""
+    def resolve_task(self, task_id: str, success: bool = True,
+                     solution: str = "",
+                     knowledge_threshold: int = 3) -> AttemptRecord | None:
+        """태스크 해결 표시
+
+        knowledge_threshold: config.auto_knowledge_threshold에서 주입.
+        should_knowledgeize gate를 통과한 record만 knowledge_candidates에 추가.
+        """
         if task_id not in self.active_tasks:
             return None
 
@@ -196,31 +207,27 @@ class CodingSession:
         else:
             record.mark_failure()
 
-        if record.should_knowledgeize:
+        if record._should_knowledgeize_with_threshold(knowledge_threshold):
             self.knowledge_candidates.append(record)
 
         self.completed_tasks.append(record)
         return record
 
     def detect_repeated_failures(self) -> list[AttemptRecord]:
-        """반복 실패 패턴 감지"""
+        """반복 실패 패턴 감지
+
+        동일 태스크 ID로 접힌 AttemptRecord를 active_tasks에서 순회하되,
+        각 record의 attempts가 threshold 이상이면 반복 실패로 간주.
+        (동일 task_id의 시도가 track_attempt에서 attempts에 누적되므로,
+        별도의 description 기반 그룹핑 없이 attempts 카운트로 판정.)
+        """
         repeated = []
-        task_descriptions: dict[str, list[AttemptRecord]] = {}
-
         for task_id, record in self.active_tasks.items():
-            # 유사한 태스크.description 묶기 (단순 유사도)
-            desc_key = record.task_description[:50].lower().strip()
-
-            if desc_key not in task_descriptions:
-                task_descriptions[desc_key] = []
-            task_descriptions[desc_key].append(record)
-
-        for desc, records in task_descriptions.items():
-            if len(records) >= 3:  # 3번 이상 반복
-                for r in records:
-                    r.failure_pattern = f"repeated_{len(records)}x"
-                    repeated.append(r)
-
+            if record.attempts >= 3 or (
+                record.final_status == "failed" and record.failures > 0
+            ):
+                record.failure_pattern = f"repeated_{record.attempts}x"
+                repeated.append(record)
         return repeated
 
     def get_session_summary(self) -> dict:

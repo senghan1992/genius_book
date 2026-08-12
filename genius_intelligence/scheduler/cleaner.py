@@ -82,13 +82,16 @@ class AutoCleaner:
         """
         정리 필요 여부 확인 후 실행
 
-        마지막 정리 후 interval이 지났으면 실행
+        첫 호출(_last_cleanup is None)에서는 실행하지 않고 시간만 기록.
+        이후 interval이 경과했으면 실행.
         """
         if not self.config.auto_cleanup_enabled:
             return
 
         if self._last_cleanup is None:
-            self.cleanup()
+            # 첫 호출: 시간만 기록, 삭제하지 않음
+            self._last_cleanup = datetime.now()
+            logger.debug("[AutoCleaner] First cleanup check — recording time only")
             return
 
         elapsed = (datetime.now() - self._last_cleanup).total_seconds()

@@ -122,8 +122,6 @@ class AutoWatcher:
     @staticmethod
     def detect_running_cli() -> Optional[str]:
         """현재 실행 중인 코딩 어시스턴트 CLI 탐지"""
-        import psutil
-
         cli_markers = {
             "claude": ["claude-code", "claude-code-bin"],
             "omp": ["omp"],
@@ -135,6 +133,8 @@ class AutoWatcher:
         }
 
         try:
+            import psutil
+
             current_proc = psutil.Process()
 
             # 현재 프로세스와 부모 프로세스 탐색
@@ -248,6 +248,8 @@ class AutoWatcher:
             return
 
         try:
+            import psutil
+
             # 프로세스 출력 감시 (stdout/stderr 파이프)
             proc = self._watched_process
 
@@ -265,7 +267,7 @@ class AutoWatcher:
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
 
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ImportError):
             self._watched_process = None
 
     def _poll_files(self) -> None:

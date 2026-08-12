@@ -627,28 +627,45 @@ class PlanTracker:
         return " ".join(desc_lines)[:200]
 
     def _extract_tasks(self, content: str) -> list[PlannedTask]:
-        """마크다운에서 태스크 추출"""
+        """마크다운에서 태스크 추출
+
+        - 헤더는 Task/Step/계획/작업 등 키워드가 포함된 경우만 태스크로 한정
+        - [x] 체크박스는 is_completed=True 세팅 (completion_rate가 0이 되는 버그 수정)
+        - 코드 블록 안의 번호 리스트는 제외
+        """
         tasks = []
         current_task = None
+        in_code_block = False
 
         lines = content.split("\n")
 
         for line in lines:
-            original = line
             line = line.strip()
 
+            # 코드 블록 토글
+            if line.startswith("```"):
+                in_code_block = not in_code_block
+                continue
+            if in_code_block:
+                continue
+
             # 체크박스 태스크
-            checkbox_match = re.match(r"^[-*]\s+\[[ xX]\]\s+(.+)$", line)
+            checkbox_match = re.match(r"^[-*]\s+\[([ xX])\]\s+(.+)$", line)
             if checkbox_match:
                 if current_task:
                     tasks.append(current_task)
-                title = checkbox_match.group(1).strip()
-                is_done = "[x]" in line.lower()
-                current_task = PlannedTask(
+                check = checkbox_match.group(1).lower()
+                title = checkbox_match.group(2).strip()
+                is_done = check == "x"
+                task = PlannedTask(
                     title=title,
                     order=len(tasks),
                     status=TaskStatus.COMPLETED if is_done else TaskStatus.PLANNED,
                 )
+                if is_done:
+                    task.is_completed = True
+                    task.completion_rate = 1.0
+                current_task = task
                 continue
 
             # 번호 리스트 태스크
@@ -664,8 +681,12 @@ class PlanTracker:
                 )
                 continue
 
-            # 헤더 태스크 (## Task 1, ### Step 1, ### 1. Title 등)
-            header_match = re.match(r"^#{2,4}\s+(?:\d+\.?\s*)?(?:Task|Step|Todo|작업|단계)?[:\-]?\s*(.+)?$", line, re.IGNORECASE)
+            # 헤더 태스크: Task/Step/계획/작업/단계/할일 키워드가 포함된 헤더만
+            header_kw_pattern = r"^(?:Task|Step|Todo|작업|단계|계획|할일|진행|실행|Phase|Sprint|Milestone)"
+            header_match = re.match(
+                r"^#{2,4}\s+(?:\d+\.?\s*)?" + header_kw_pattern + r"[:\-]?\s*(.+)?$",
+                line, re.IGNORECASE
+            )
             if header_match:
                 if current_task:
                     tasks.append(current_task)
@@ -745,31 +766,50 @@ class PlanTracker:
     # ── 태스크 매칭 ───────────────────────────────────────────────
 
     def _match_command_to_tasks(self, command: str, success: bool) -> None:
-        """실행된 명령어를 플랜 태스크와 매칭"""
+        """실행된 명령어를 플랜 태스크와 매칭
+
+        한 번의 무관 명령으로 태스크가 닫히지 않게:
+        - stopword 필터 (git, cd, ls, echo, cat 등)
+        - 명령-태스크 단어 교집합 2개 이상 (정밀 일치)
+        - success=True여도 즉시 완료하지 않고 started 상태로만 표시
+        """
         if not self.active_plans:
             return
 
         command_lower = command.lower()
+
+        # stopword — 이런 명령은 태스크 완료로 간주하지 않음
+        stopword_cmds = {"git", "cd", "ls", "echo", "cat", "pwd", "export",
+                         "mv", "cp", "rm", "mkdir", "touch", "chmod"}
+        cmd_tokens = command_lower.split()
+        if cmd_tokens and cmd_tokens[0] in stopword_cmds:
+            return
 
         for plan_id, plan in self.active_plans.items():
             for task in plan.parsed_tasks:
                 if task.status not in (TaskStatus.PLANNED, TaskStatus.IN_PROGRESS):
                     continue
 
-                # 명령어와 태스크 제목 유사성 체크
+                # 명령어와 태스크 제목 유사성 체크 (정밀 일치)
                 task_words = set(task.title.lower().split())
                 cmd_words = set(command_lower.split())
 
-                # 공통 단어가 있으면 매칭
-                common = task_words & cmd_words
-                if len(common) >= 2 or (len(common) >= 1 and len(task_words) <= 3):
+                # stopword 제거 후 의미있는 단어만 비교
+                stopword_words = {"the", "a", "an", "to", "for", "in", "on",
+                                  "with", "and", "or", "of", "is", "are"}
+                task_meaningful = task_words - stopword_words
+                cmd_meaningful = cmd_words - stopword_words
+
+                common = task_meaningful & cmd_meaningful
+                # 2개 이상 공통 단어가 있으면 매칭 (즉시 완료하지 않음)
+                if len(common) >= 2 or (len(common) >= 1 and len(task_meaningful) <= 2):
                     if not task.started_at:
                         task.mark_started()
                     task.actual_action = command
-
-                    if success:
-                        task.mark_completed(f"Command succeeded: {command}")
-                    else:
+                    # success=True여도 즉시 완료하지 않음 —
+                    # 한 번의 명령으로 태스크가 닫히지 않게.
+                    # 실패한 경우에만 mark_failed
+                    if not success:
                         task.mark_failed(f"Command failed: {command}")
 
                     plan.recalculate_stats()
@@ -909,49 +949,50 @@ class PlanTracker:
         """플랜을 DB에 저장"""
         # plans 테이블이 없으면 생성
         try:
-            self.genius.db._conn().__enter__().execute("""
-                CREATE TABLE IF NOT EXISTS plan_documents (
-                    id TEXT PRIMARY KEY,
-                    title TEXT,
-                    description TEXT,
-                    source TEXT,
-                    status TEXT,
-                    total_tasks INTEGER,
-                    completed_tasks INTEGER,
-                    failed_tasks INTEGER,
-                    raw_content TEXT,
-                    file_path TEXT,
-                    created_at TEXT,
-                    updated_at TEXT,
-                    completed_at TEXT,
-                    workarounds TEXT,
-                    learnings TEXT
-                )
-            """)
+            with self.genius.db._conn() as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS plan_documents (
+                        id TEXT PRIMARY KEY,
+                        title TEXT,
+                        description TEXT,
+                        source TEXT,
+                        status TEXT,
+                        total_tasks INTEGER,
+                        completed_tasks INTEGER,
+                        failed_tasks INTEGER,
+                        raw_content TEXT,
+                        file_path TEXT,
+                        created_at TEXT,
+                        updated_at TEXT,
+                        completed_at TEXT,
+                        workarounds TEXT,
+                        learnings TEXT
+                    )
+                """)
 
-            self.genius.db._conn().__enter__().execute("""
-                INSERT OR REPLACE INTO plan_documents
-                (id, title, description, source, status, total_tasks,
-                 completed_tasks, failed_tasks, raw_content, file_path,
-                 created_at, updated_at, completed_at, workarounds, learnings)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                plan.id,
-                plan.title,
-                plan.description,
-                plan.source,
-                plan.status.value,
-                plan.total_tasks,
-                plan.completed_tasks,
-                plan.failed_tasks,
-                plan.raw_content[:5000],
-                plan.file_path,
-                plan.created_at.isoformat(),
-                plan.updated_at.isoformat(),
-                plan.completed_at.isoformat() if plan.completed_at else None,
-                json.dumps(plan.workarounds),
-                json.dumps(plan.learnings),
-            ))
+                conn.execute("""
+                    INSERT OR REPLACE INTO plan_documents
+                    (id, title, description, source, status, total_tasks,
+                     completed_tasks, failed_tasks, raw_content, file_path,
+                     created_at, updated_at, completed_at, workarounds, learnings)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    plan.id,
+                    plan.title,
+                    plan.description,
+                    plan.source,
+                    plan.status.value,
+                    plan.total_tasks,
+                    plan.completed_tasks,
+                    plan.failed_tasks,
+                    plan.raw_content[:5000],
+                    plan.file_path,
+                    plan.created_at.isoformat(),
+                    plan.updated_at.isoformat(),
+                    plan.completed_at.isoformat() if plan.completed_at else None,
+                    json.dumps(plan.workarounds),
+                    json.dumps(plan.learnings),
+                ))
         except Exception as e:
             logger.error(f"[PlanTracker] Failed to save plan to DB: {e}")
 

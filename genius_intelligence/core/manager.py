@@ -12,6 +12,8 @@ GeniusIntelligence Manager
 
 from __future__ import annotations
 
+import atexit
+import json
 import logging
 import os
 import sys
@@ -81,7 +83,7 @@ class GeniusIntelligence:
         self.current_session: Optional[CodingSession] = None
         self._cli_tool: str = self._detect_cli_tool()
         self._initialized: bool = False
-        self._pending_knowledgeize: list[AttemptRecord] = []
+
 
         if auto_init:
             self._initialize()
@@ -155,8 +157,19 @@ class GeniusIntelligence:
         # 세션 시작
         self._start_session()
 
+        # atexit 등록 — flush() 없이 종료해도 세션이 남도록
+        atexit.register(self._atexit_flush)
+
         self._initialized = True
         logger.info(f"[GeniusIntelligence] Initialized at: {self.project_root}")
+
+    def _atexit_flush(self) -> None:
+        """atexit 핸들러 — 이미 flush됐으면 no-op"""
+        try:
+            if self.current_session and not self.current_session.ended_at:
+                self.flush()
+        except Exception:
+            pass
 
     def _ensure_genius_structure(self) -> None:
         """디렉토리 구조 생성"""
@@ -333,7 +346,7 @@ class GeniusIntelligence:
         )
 
         self.current_session.add_event(event)
-        self.current_session.total_errors += 1
+
 
         # 태스크 레코드 업데이트
         user_events = [
@@ -500,16 +513,14 @@ class GeniusIntelligence:
 
         조건:
         - force=True 이거나
-        - attempt_record.should_knowledgeize=True (3회 이상 시도 또는 반복 실패)
+        - attempt_record가 config.auto_knowledge_threshold를 통과 (3회 이상 시도 또는 반복 실패)
         """
-        if not force and not attempt_record.should_knowledgeize:
+        threshold = self.config.auto_knowledge_threshold
+        if not force and not attempt_record._should_knowledgeize_with_threshold(threshold):
             return None
 
-        # 이미 지식화된 것인지 확인
-        task_key = self._extract_task_id(attempt_record.task_description)
-        existing = self.graph.find_node("etc", task_key) if task_key else None
-        if existing and not force:
-            return None
+        # 토픽/도메인 추출 — _extract_task_id와 동일한 topic 기반
+        topic = self._extract_topic(attempt_record.task_description)
 
         # 도메인 자동 감지
         domain = KnowledgeDomain.detect_domain(
@@ -517,19 +528,40 @@ class GeniusIntelligence:
             self.config.custom_domains,
         )
 
-        # 토픽 추출
-        topic = self._extract_topic(attempt_record.task_description)
-
         # 실패 여부 판단
         is_failure = (
             attempt_record.final_status == "failed" or
             attempt_record.failures > 0
         )
 
+        # 실패한 지식은 etc 도메인으로
+        effective_domain = domain if not is_failure else "etc"
+
+        # 중복 체크: 동일 node_key(effective_domain/topic)가 이미 있으면 병합(통계 누적)
+        node_key = f"{effective_domain}/{topic}" if topic else effective_domain
+        existing = self.graph.find_node(effective_domain, topic)
+        if existing:
+            # 기존 노드에 통계 누적 (덮어쓰기 방지)
+            existing.attempt_count += attempt_record.attempts
+            existing.success_count += attempt_record.successes
+            existing.fail_count += attempt_record.failures
+            existing.updated_at = datetime.now()
+            if attempt_record.solution:
+                existing.solution = attempt_record.solution
+            if attempt_record.error_traces:
+                existing.error_trace = "\n".join(attempt_record.error_traces[:3])
+            existing.touch()
+            # DB에 갱신
+            self.db.save_knowledge_node(existing)
+            # 파일도 갱신
+            self.store.save_node(existing, self.db)
+            logger.info(f"[GeniusIntelligence] Knowledge updated: {node_key}")
+            return existing
+
         # KnowledgeNode 생성
         node = KnowledgeNode(
             name=topic or attempt_record.task_description[:50],
-            domain=domain if not is_failure else "etc",
+            domain=effective_domain,
             topic=topic,
             depth=2 if topic else 1,
             knowledge_type=(
@@ -584,22 +616,47 @@ class GeniusIntelligence:
         if not self.current_session:
             return []
 
-        # 반복 실패 패턴 감지
-        repeated = self.current_session.detect_repeated_failures()
-        for record in repeated:
-            if record not in self.current_session.knowledge_candidates:
-                self.current_session.knowledge_candidates.append(record)
+        session = self.current_session
+        threshold = self.config.auto_knowledge_threshold
 
-        # 모든 지식화 후보 처리
+        # 아직 active_tasks에 남아있는 record들을 resolve_task로 마무리.
+        # should_knowledgeize gate를 통과한 것만 knowledge_candidates에 추가.
+        active_task_ids = list(session.active_tasks.keys())
+        for task_id in active_task_ids:
+            record = session.active_tasks.get(task_id)
+            if record is None:
+                continue
+            # resolve_task가 success/failure를 mark하고 gate를 통과시켜 knowledge_candidates에 추가
+            success = record.final_status == "success"
+            session.resolve_task(
+                task_id, success=success,
+                solution=record.solution,
+                knowledge_threshold=threshold,
+            )
+
+        # 반복 실패 패턴 감지 (detect_repeated_failures는 active_tasks를 순회하므로,
+        # 위 resolve_task가 이미 active_tasks에서 pop했으므로 여기서 보충)
+        repeated = session.detect_repeated_failures()
+        for record in repeated:
+            if record not in session.knowledge_candidates:
+                session.knowledge_candidates.append(record)
+
+        # 모든 지식화 후보 처리 — resolve_task/detect_repeated_failures가
+        # should_knowledgeize gate를 통과시킨 record들만 knowledge_candidates에 있다.
+        # force=True는 게이트를 재확인하지 않고 처리 (이미 통과했으므로).
         created_nodes = []
-        for record in self.current_session.knowledge_candidates:
+        for record in session.knowledge_candidates:
             node = self.knowledgeize(record, force=True)
             if node:
                 created_nodes.append(node)
 
         # 세션 종료
-        self.current_session.ended_at = datetime.now()
-        self.db.save_session(self.current_session)
+        session.ended_at = datetime.now()
+        self.db.save_session(session)
+
+        # A2: 세션 이벤트와 attempt_records를 DB에 영속화
+        self.db.save_session_events(session)
+        self.db.save_attempt_records(session)
 
         logger.info(
             f"[GeniusIntelligence] Session ended. "
@@ -656,14 +713,13 @@ class GeniusIntelligence:
     # ── 유틸리티 ─────────────────────────────────────────────────────
 
     def _extract_task_id(self, text: str) -> str:
-        """텍스트에서 태스크 ID 추출 (간단한 해시)"""
-        import hashlib
-        import base64
-        words = text.lower().split()[:5]
-        key = " ".join(words)
-        return base64.urlsafe_b64encode(
-            hashlib.sha256(key.encode()).digest()[:12]
-        ).decode()
+        """텍스트에서 태스크 ID 추출
+
+        정규화된 태스크 ID(topic)를 반환 — _extract_topic과 동일한 키.
+        동일 주제 반복 메시지가 같은 키로 묶여 attempts가 누적되고,
+        detect_repeated_failures가 반복을 감지할 수 있게 한다.
+        """
+        return self._extract_topic(text)
 
     def _extract_topic(self, text: str) -> str:
         """텍스트에서 토픽 키워드 추출"""

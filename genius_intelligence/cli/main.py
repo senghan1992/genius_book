@@ -141,11 +141,22 @@ def stats():
         sys.exit(1)
     all_stats = genius.db.get_stats()
     cleaner_stats = genius.cleaner.get_cleanup_stats()
+
+    # B3: 피드백 루프 헬스 메트릭
+    knowledge_searched = genius.db.get_usage_count("read")
+    failure_knowledge = sum(
+        1 for n in genius.graph.nodes.values()
+        if n.fail_count > 0
+    )
+
     click.echo("\n=== Genius Intelligence Stats ===")
     click.echo(f"Active nodes: {all_stats['total_active_nodes']}")
     click.echo(f"Sessions: {all_stats['total_sessions']}")
     click.echo(f"Login info: {all_stats['total_login_info']}")
     click.echo(f"Stale nodes: {cleaner_stats['stale_nodes_count']}")
+    click.echo(f"\n--- Feedback Loop ---")
+    click.echo(f"Knowledge searched/injected: {knowledge_searched}")
+    click.echo(f"Failure knowledge nodes: {failure_knowledge}")
 
 
 @cli.command()
@@ -200,11 +211,51 @@ def wrap(cli_tool, args, project, force):
         supported_clis = UniversalWrapper.DEFAULT_SUPPORTED_CLIS | {cli_tool}
 
     wrapper = UniversalWrapper(project, supported_clis=supported_clis)
+
+    # B2: 세션 시작 시 컨텍스트 파일 자동 갱신
+    try:
+        from ..context import write_context_file
+        genius_inst = wrapper.genius
+        context_path = write_context_file(genius_inst, limit=10)
+        if context_path:
+            print(f"[genius] Context: {context_path}", file=sys.stderr)
+            print(f"[genius] Include @.genius_intelligence/context.md in your CLAUDE.md / context file.", file=sys.stderr)
+    except Exception as e:
+        print(f"[genius] Context generation skipped: {e}", file=sys.stderr)
+
     cmd = [cli_tool] + list(args)
     sys.exit(wrapper.run(cmd))
 
 
 @cli.command()
+@click.argument("query", required=False, default="")
+@click.option("--limit", "-n", default=10, help="결과 개수")
+@click.option("--write", "-w", is_flag=True, help="context.md 파일로 쓰기")
+def context(query, limit, write):
+    """저장된 지식을 마크다운 컨텍스트로 출력 (주입 가능)
+
+    stdout으로 마크다운을 출력. shell-init처럼 로그를 섞지 않는다.
+    빈 결과면 아무것도 출력하지 않는다.
+    """
+    from ..context import render_knowledge_context, write_context_file
+    genius = GeniusIntelligence.for_current_project()
+    if genius is None:
+        click.echo("Error: Genius Intelligence 프로젝트가 아닙니다.", err=True)
+        sys.exit(1)
+
+    if write:
+        path = write_context_file(genius, query, limit)
+        if path:
+            click.echo(f"Context written: {path}")
+        else:
+            click.echo("No knowledge to write.")
+        return
+
+    md = render_knowledge_context(genius, query, limit)
+    if md:
+        click.echo(md)
+
+
 def shell_init():
     """셸 통합 스니펫 출력 (POSIX sh/dash/bash/zsh 모두 호환)
 

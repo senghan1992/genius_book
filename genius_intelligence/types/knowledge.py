@@ -201,7 +201,24 @@ class KnowledgeGraph:
     domains: dict = field(default_factory=dict)
 
     def add_node(self, node: KnowledgeNode) -> str:
+        """노드 추가 — 같은 node_key가 이미 있으면 통계를 병합 (덮어쓰지 않음)"""
         key = node.node_key
+        if key in self.nodes:
+            existing = self.nodes[key]
+            existing.attempt_count += node.attempt_count
+            existing.success_count += node.success_count
+            existing.fail_count += node.fail_count
+            existing.accessed_count += node.accessed_count
+            if node.solution:
+                existing.solution = node.solution
+            if node.error_trace:
+                existing.error_trace = node.error_trace
+            if node.description:
+                existing.description = node.description
+            existing.updated_at = datetime.now()
+            existing.touch()
+            return key
+
         self.nodes[key] = node
 
         if node.domain not in self.domains:
