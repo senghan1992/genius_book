@@ -39,7 +39,7 @@ def cli(ctx, project, verbose):
 
     주의: 여기서는 GeniusIntelligence 전체 인스턴스를 미리 만들지 않습니다.
     `shell-init`, `--help` 같은 순수 정적 명령까지 매번 DB 연결/플랜 감시
-    스레드를 켜는 부작용이 생고, 로그가 stdout에 섞여 `eval "$(genius
+    스레드를 켜는 부작용이 생기고, 로그가 stdout에 섞여 `eval "$(genius
     shell-init)"` 같은 셸 통합이 깨질 수 있기 때문입니다. 프로젝트 경로만
     저장해두고, 실제로 필요한 서브커맨드에서 각자 초기화합니다.
     """
