@@ -30,6 +30,7 @@ from .. import __version__ as __genius_version__
 
 
 @click.group()
+@click.version_option(version=__genius_version__, prog_name="genius")
 @click.option("--project", "-p", default=None, help="프로젝트 경로")
 @click.option("--verbose", "-v", is_flag=True, help="상세 출력")
 @click.pass_context
