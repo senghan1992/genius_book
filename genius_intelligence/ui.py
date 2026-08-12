@@ -124,7 +124,24 @@ def _is_newer(latest: str, current: str) -> bool:
         return latest != current
 
 
-# ── 출력 헬퍼 ────────────────────────────────────────────────────────
+def _bar_column_kwargs() -> dict:
+    """rich 버전별 BarColumn 호환성 처리.
+
+    rich 13.x: `bar_style="cyan"` 지원
+    rich 14.x+: `bar_style` 제거, `complete_style="cyan"` 사용
+
+    두 버전 모두에서 동작하는 kwargs를 반환한다.
+    """
+    try:
+        from rich.progress import BarColumn
+        import inspect
+        if "complete_style" in inspect.signature(BarColumn.__init__).parameters:
+            return {"complete_style": "cyan"}
+        return {"bar_style": "cyan"}
+    except Exception:
+        return {"complete_style": "cyan"}
+
+
 
 
 def banner() -> None:
@@ -236,7 +253,7 @@ def show_install_progress(description: str):
             return Progress(
                 SpinnerColumn(style="cyan"),
                 TextColumn(f"[bold cyan]{description}[/bold cyan]"),
-                BarColumn(bar_style="cyan"),
+                BarColumn(**_bar_column_kwargs()),
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 TimeElapsedColumn(),
                 console=console,
