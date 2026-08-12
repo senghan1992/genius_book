@@ -370,6 +370,65 @@ class TestA1KnowledgeizeLoop:
         genius.on_error_occurred("TestError", stack_trace="trace")
         assert genius.current_session.total_errors == initial + 1
 
+class TestLazyDirectoryCreation:
+    """빈 폴더를 만들지 않고, 실제 사용 시 lazy하게 폴더 생성 확인"""
+
+    def test_init_creates_only_root_and_config(self):
+        import tempfile, shutil
+        from pathlib import Path
+        from genius_intelligence import GeniusIntelligence
+        import genius_intelligence.memory.db
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proj = Path(tmpdir) / "proj"
+            proj.mkdir()
+            (proj / "pyproject.toml").write_text("[project]")
+            genius_intelligence.memory.db._db_cache.clear()
+            genius = GeniusIntelligence(str(proj), auto_init=True)
+
+            genius_root = proj / ".genius_intelligence"
+            # 루트와 .config만 존재
+            assert genius_root.exists()
+            assert (genius_root / ".config").exists()
+            # 빈 하위 폴더는 없어야 함
+            assert not (genius_root / "knowledge_graph").exists()
+            assert not (genius_root / "login_information").exists()
+            # 실제로 사용된 폴더만 생성됨
+            # 실제로 사용된 항목만: .config (폴더) + memory.sqlite.db (파일)
+            entries = sorted(p.name for p in genius_root.iterdir())
+            assert entries == [".config", "memory.sqlite.db"]
+
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_save_node_lazy_creates_domain_dir(self):
+        import tempfile, shutil
+        from pathlib import Path
+        from genius_intelligence import GeniusIntelligence
+        from genius_intelligence.types.knowledge import KnowledgeNode, KnowledgeType
+        import genius_intelligence.memory.db
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proj = Path(tmpdir) / "proj"
+            proj.mkdir()
+            (proj / "pyproject.toml").write_text("[project]")
+            genius_intelligence.memory.db._db_cache.clear()
+            genius = GeniusIntelligence(str(proj), auto_init=True)
+
+            genius_root = proj / ".genius_intelligence"
+            assert not (genius_root / "knowledge_graph").exists()
+
+            # 노드 저장 시 도메인 폴더가 lazy 생성됨
+            node = KnowledgeNode(
+                name="test", domain="api", topic="test",
+                depth=2, knowledge_type=KnowledgeType.SUCCESS,
+            )
+            genius.graph.add_node(node)
+            genius.store.save_node(node, genius.db)
+
+            assert (genius_root / "knowledge_graph" / "api").exists()
+
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 class TestA2SessionPersistence:
     """A2: flush() 없이 종료 후 재시작해도 세션 기록이 남는지 확인"""

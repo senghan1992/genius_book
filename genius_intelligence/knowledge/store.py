@@ -68,7 +68,8 @@ class KnowledgeStore:
         self.config = config
         self.knowledge_graph_dir = self.genius_root / "knowledge_graph"
         self.login_info_dir = self.genius_root / "login_information"
-        self._ensure_structure()
+        # 하위 폴더는 만들지 않음 — 실제 사용 시 lazy 생성
+        # (빈 폴더는 의미 없음)
 
     def _ensure_structure(self) -> None:
         """필요한 디렉토리 구조 생성"""
@@ -322,6 +323,8 @@ class KnowledgeStore:
                         description: str = "") -> tuple[str, bool]:
         """로그인 정보 저장"""
         file_path = self.login_info_dir / "user_information.md"
+        # 폴더는 첫 사용 시 lazy 생성 (빈 폴더 안 만들기)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
         existing: dict = {}
         if file_path.exists():
             content = file_path.read_text(encoding="utf-8")

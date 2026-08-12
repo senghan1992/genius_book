@@ -208,14 +208,14 @@ class GeniusIntelligence:
             pass
 
     def _ensure_genius_structure(self) -> None:
-        """디렉토리 구조 생성"""
+        """최소 디렉토리 구조 생성
+
+        사용자가 'genius init'으로 의도적으로 표시한 시점에
+        .genius_intelligence/와 .config/만 만든다.
+        knowledge_graph/, login_information/ 등 하위 폴더는
+        실제 데이터 저장 시 lazy하게 생성된다 — 빈 폴더 안 만들기.
+        """
         Path(self.config.genius_root).mkdir(parents=True, exist_ok=True)
-        Path(self.config.genius_root, "knowledge_graph", "etc").mkdir(
-            parents=True, exist_ok=True
-        )
-        Path(self.config.genius_root, "login_information").mkdir(
-            parents=True, exist_ok=True
-        )
         Path(self.config.genius_root, ".config").mkdir(parents=True, exist_ok=True)
 
     def _start_session(self) -> None:
