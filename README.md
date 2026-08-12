@@ -8,7 +8,7 @@
 
 ```bash
 # Linux / macOS — omp.sh 스타일 한 줄 설치 (질문 없음, 자동으로 시스템 PATH에 설치)
-curl -fsSL https://senghan1992.github.io/genius_book/install | sh
+curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh
 
 # Windows
 irm https://raw.githubusercontent.com/senghan1992/genius_intelligence/main/install.ps1 | iex
@@ -21,10 +21,10 @@ irm https://raw.githubusercontent.com/senghan1992/genius_intelligence/main/insta
 
 ```bash
 # 방식을 명시적으로 지정하고 싶을 때만 (기본값은 환경에 맞춰 자동 선택)
-curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=pipx
-curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=user
-curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=global
-curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=venv
+curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh -s -- --mode=pipx
+curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh -s -- --mode=user
+curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh -s -- --mode=global
+curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh -s -- --mode=venv
 ```
 
 자동 선택 우선순위:
@@ -35,7 +35,7 @@ curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=v
 제거:
 
 ```bash
-curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --uninstall
+curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh -s -- --uninstall
 ```
 
 ## 핵심 기능
@@ -122,7 +122,7 @@ print(score.is_plan, score.score, score.signals)
 
 ```bash
 # 한 줄 설치 (질문 없이 끝남)
-curl -fsSL https://senghan1992.github.io/genius_book/install | sh
+curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh
 
 # 새 셸 열기 (PATH 자동 적용)
 exec $SHELL

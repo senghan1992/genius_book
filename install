@@ -9,9 +9,9 @@
 # 진행 줄 + 완료 한 줄만 남깁니다. omp.sh 와 동일한 한 줄 설치 UX.
 #
 # Usage (짧은 URL, 권장):
-#   curl -fsSL https://senghan1992.github.io/genius_book/install | sh
-#   curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --help
-#   curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --uninstall
+#   curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh
+#   curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh -s -- --help
+#   curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh -s -- --uninstall
 #
 # GitHub raw URL로도 동일하게 동작합니다:
 #   curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_intelligence/main/install.sh | sh
@@ -102,9 +102,9 @@ show_help() {
 Genius Intelligence Installer (omp.sh-style, silent on stdout)
 
 사용법 (짧은 URL, 권장):
-    curl -fsSL https://senghan1992.github.io/genius_book/install | sh
-    curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --help
-    curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --uninstall
+    curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh
+    curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh -s -- --help
+    curl -fsSL https://senghan1992.github.io/genius_intelligence/install | sh -s -- --uninstall
 
 또는 GitHub raw URL로도 동일하게 동작합니다:
     curl -fsSL https://raw.githubusercontent.com/${GENIUS_REPO}/main/install.sh | sh
