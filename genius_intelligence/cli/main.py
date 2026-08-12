@@ -14,7 +14,19 @@ except ImportError:
     HAS_CLICK = False
 
 from ..core.manager import GeniusIntelligence
+from ..ui import (
+    HAS_RICH,
+    banner,
+    check_for_update,
+    print_install_banner,
+    print_update_notice,
+    show_install_progress,
+    status_error,
+    status_info,
+    status_success,
+)
 from ..utils.helpers import format_tree, pretty_print_stats, setup_logging
+from .. import __version__ as __genius_version__
 
 
 @click.group()
@@ -27,7 +39,7 @@ def cli(ctx, project, verbose):
 
     주의: 여기서는 GeniusIntelligence 전체 인스턴스를 미리 만들지 않습니다.
     `shell-init`, `--help` 같은 순수 정적 명령까지 매번 DB 연결/플랜 감시
-    스레드를 켜는 부작용이 생기고, 로그가 stdout에 섞여 `eval "$(genius
+    스레드를 켜는 부작용이 생고, 로그가 stdout에 섞여 `eval "$(genius
     shell-init)"` 같은 셸 통합이 깨질 수 있기 때문입니다. 프로젝트 경로만
     저장해두고, 실제로 필요한 서브커맨드에서 각자 초기화합니다.
     """
@@ -35,6 +47,11 @@ def cli(ctx, project, verbose):
     setup_logging("DEBUG" if verbose else "INFO")
     ctx.obj["project"] = project
 
+    # 업데이트 체크 — shell-init, update는 스킵 (순수 정적)
+    if ctx.invoked_subcommand not in (None, "shell-init", "update"):
+        latest = check_for_update(__genius_version__)
+        if latest:
+            print_update_notice(latest, __genius_version__)
 
 def _require_genius(project=None):
     """초기화된 GeniusIntelligence 인스턴스 반환 또는 에러 종료.
@@ -105,9 +122,11 @@ def init(force):
         sys.exit(1)
     # init은 for_current_project가 아닌 직접 생성자로 초기화.
     # for_current_project는 .genius_intelligence 폴더가 없으면 None을 반환하므로.
+    banner()
     genius = GeniusIntelligence(str(project), auto_init=True)
-    click.echo(f"Initialized: {genius_dir}")
-
+    status_success(f"Initialized: {genius_dir}")
+    click.echo("  이제 'genius wrap <cli>'로 코딩 어시스턴트를 지능적으로 감쌀 수 있습니다.",
+               file=sys.stderr)
 
 @cli.command()
 @click.argument("task_description")
@@ -276,6 +295,41 @@ def shell_init():
         click.echo("Error: Shell script not found", err=True)
         sys.exit(1)
 
+
+@cli.command()
+@click.option("--check-only", is_flag=True, help="업데이트 가능 여부만 확인")
+def update(check_only):
+    """genius-intelligence를 최신 버전으로 업데이트"""
+    print_install_banner()
+    click.echo(f"  현재 버전: {__genius_version__}", file=sys.stderr)
+
+    latest = check_for_update(__genius_version__, force=True)
+    if latest is None:
+        status_success(f"이미 최신 버전입니다 (v{__genius_version__}).")
+        return
+
+    click.echo(f"  최신 버전: {latest}", file=sys.stderr)
+
+    if check_only:
+        status_info(f"'genius update' 를 실행하면 v{latest}으로 업그레이드됩니다.")
+        return
+
+    status_info(f"v{__genius_version__} → v{latest} 업그레이드를 시작합니다...")
+
+    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "genius-intelligence"]
+    try:
+        with show_install_progress("Installing genius-intelligence"):
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            status_success(f"업그레이드 완료! v{latest}이 설치됐습니다.")
+            click.echo("  변경사항은 'genius --help' 또는 GitHub에서 확인하세요.", file=sys.stderr)
+        else:
+            status_error("업그레이드 실패. 위 로그를 확인하세요.")
+            click.echo(result.stderr[-2000:] if result.stderr else "(no stderr)", file=sys.stderr)
+            sys.exit(1)
+    except FileNotFoundError:
+        status_error("pip을 찾을 수 없습니다. 'python3 -m pip install --upgrade genius-intelligence' 를 직접 실행하세요.")
+        sys.exit(1)
 
 def main():
     if not HAS_CLICK:
