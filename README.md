@@ -11,7 +11,7 @@
 curl -fsSL https://senghan1992.github.io/genius_book/install | sh
 
 # Windows
-irm https://raw.githubusercontent.com/senghan1992/genius_book/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/senghan1992/genius_intelligence/main/install.ps1 | iex
 ```
 
 설치 끝나면 새 셸을 열고 바로 `genius` 명령이 동작합니다.

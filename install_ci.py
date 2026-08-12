@@ -8,11 +8,11 @@ GitHub Actions, GitLab CI 등에서 사용하기 위한 설치 스크립트
     # GitHub Actions
     - name: Install Genius Intelligence
       run: |
-        curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | bash
+        curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_intelligence/main/install.sh | bash
 
     # GitLab CI
     - script:
-        - curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | bash
+        - curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_intelligence/main/install.sh | bash
 
     # 직접 실행
     python3 install_ci.py

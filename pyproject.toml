@@ -50,9 +50,9 @@ cli = [
 genius = "genius_intelligence.cli.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/senghan1992/genius_book"
-Documentation = "https://github.com/senghan1992/genius_book#readme"
-Repository = "https://github.com/senghan1992/genius_book"
+Homepage = "https://github.com/senghan1992/genius_intelligence"
+Documentation = "https://github.com/senghan1992/genius_intelligence#readme"
+Repository = "https://github.com/senghan1992/genius_intelligence"
 
 [tool.hatch.build.targets.sdist]
 include = [

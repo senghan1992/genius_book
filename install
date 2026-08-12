@@ -1,9 +1,12 @@
 #!/bin/sh
 # =============================================================================
-# Genius Intelligence - Installer
+# Genius Intelligence - Installer (omp.sh-style: silent on stdout)
 # =============================================================================
 # POSIX sh 호환 스크립트입니다. bash, dash, zsh, ash(alpine) 등에서 모두
 # 동작하도록 [[ ]], =~, 배열, read -p/-n, &> 등 bash 전용 문법을 사용하지 않습니다.
+#
+# 기본 설치 경로(| sh 만, 인자 없음)는 stdout을 비우고 stderr에 짧은
+# 진행 줄 + 완료 한 줄만 남깁니다. omp.sh 와 동일한 한 줄 설치 UX.
 #
 # Usage (짧은 URL, 권장):
 #   curl -fsSL https://senghan1992.github.io/genius_book/install | sh
@@ -11,10 +14,8 @@
 #   curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --uninstall
 #
 # GitHub raw URL로도 동일하게 동작합니다:
-#   curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_book/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/senghan1992/genius_intelligence/main/install.sh | sh
 #
-# 한 줄 설치 = omp.sh 스타일. 어떤 대화/질문도 없이 자동으로 시스템 PATH에
-# 설치되며, 설치 직후 새 셸을 열면 바로 `genius` 명령을 입력할 수 있습니다.
 # 우선순위: pipx → --user → global(sudo) → venv (최후의 수단).
 # 방식을 직접 지정하고 싶으면 --mode= 를 쓰면 됩니다.
 # =============================================================================
@@ -22,10 +23,11 @@
 set -e
 
 GENIUS_VERSION="0.1.0"
-GENIUS_REPO="senghan1992/genius_book"
+GENIUS_REPO="senghan1992/genius_intelligence"
 
 GENIUS_HOME="$HOME/.genius_intelligence_install"
 GENIUS_VENV_DIR="$GENIUS_HOME/venv"
+
 # ── 색상 / 스타일 (printf %b 로 해석. 비-tty 환경에선 그냥 무해한 문자로 출력) ──
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -33,31 +35,71 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
 NC='\033[0m'
 
-log_info()    { printf "%b[genius]%b %b\n" "$BLUE" "$NC" "$1"; }
-log_success() { printf "%b[genius]%b %b\n" "$GREEN" "$NC" "$1"; }
-log_warn()    { printf "%b[genius]%b %b\n" "$YELLOW" "$NC" "$1"; }
-log_error()   { printf "%b[genius]%b %b\n" "$RED" "$NC" "$1" >&2; }
+# ── ANSI 자동 감지: stderr 가 tty 일 때만 색상 사용 ──
+_IS_TTY=0
+if [ -t 2 ]; then
+    _IS_TTY=1
+fi
 
-rule() {
-    printf "%b%s%b\n" "$DIM" "────────────────────────────────────────────────────────────" "$NC"
+# 색상 비활성 시 모든 색상 코드를 빈 문자열로
+if [ "$_IS_TTY" -eq 0 ]; then
+    BOLD=''
+    DIM=''
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    NC=''
+fi
+
+# ── 출력 함수 (모두 stderr. stdout 은 절대 직접 찍지 않음) ──
+# omp.sh 스타일: 진행 라벨은 같은 줄을 덮어쓰고, 완료/경고/실패는 새 줄.
+
+# 진행 라벨 한 줄 (덮어쓰기). 다음 progress() 호출 전까지 유지됨.
+progress() {
+    # \r 로 줄 처음으로, ==> label...  출력 (끝 공백으로 자연스럽게 길이 보정)
+    printf '\r%s==> %s...%s   ' "$BLUE" "$1" "$NC" >&2
 }
 
-banner() {
-    printf "\n"
-    printf "%b╭──────────────────────────────────────────────────────────╮%b\n" "$CYAN" "$NC"
-    printf "%b│%b   %b🧠 Genius Intelligence%b  %bInstaller v%s%b               %b│%b\n" \
-        "$CYAN" "$NC" "$BOLD$MAGENTA" "$NC" "$DIM" "$GENIUS_VERSION" "$NC" "$CYAN" "$NC"
-    printf "%b╰──────────────────────────────────────────────────────────╯%b\n" "$CYAN" "$NC"
-    printf "\n"
+# 현재 진행 라벨 지우고 ✓ msg 한 줄로 마무리
+progress_done() {
+    # 충분히 긴 공백으로 덮어쓴 뒤 줄 끝내고 새 줄에 ✓ msg
+    printf '\r%76s\r%s✓ %s%s\n' "" "$GREEN" "$1" "$NC" >&2
 }
+
+# 진행 라벨 없이 ✓ msg 한 줄 (중간 완료 메시지용)
+ok() {
+    printf '%s✓%s %s\n' "$GREEN" "$NC" "$1" >&2
+}
+
+# 경고 (!). 진행 라벨 지우고 출력
+warn() {
+    printf '\r%76s\r%s!%s %s\n' "" "$YELLOW" "$NC" "$1" >&2
+}
+
+# 오류 메시지. 종료하지 않음 (호출자가 결정)
+err() {
+    printf '\r%76s\r%s✗%s %s\n' "" "$RED" "$NC" "$1" >&2
+}
+
+# 치명적 실패. 해결 힌트까지 출력 후 종료
+fail() {
+    printf '\r%76s\r%s✗%s %s\n' "" "$RED" "$NC" "$1" >&2
+    shift 2>/dev/null || true
+    # 남은 인자들 = 해결 방법 (각 줄)
+    for _hint in "$@"; do
+        printf '  %s↳%s %s\n' "$DIM" "$NC" "$_hint" >&2
+    done
+    exit 1
+}
+
+# ── 도움말 (--help 전용, 원본 박스 스타일 유지) ──
 
 show_help() {
     cat << EOF
-Genius Intelligence Installer
+Genius Intelligence Installer (omp.sh-style, silent on stdout)
 
 사용법 (짧은 URL, 권장):
     curl -fsSL https://senghan1992.github.io/genius_book/install | sh
@@ -75,8 +117,10 @@ Genius Intelligence Installer
     --yes, -y           질문 없이 자동 진행 (현재는 디폴트 동작이므로 무시됨)
     --mode=<MODE>       설치 방식을 강제로 지정 (global | venv | pipx | user)
 
-기본 동작 (omp.sh 스타일):
+기본 동작 (omp.sh 스타일, stdout 비움):
     어떤 대화/질문도 하지 않고, 시스템 환경에 가장 적합한 방식으로 자동 설치합니다.
+    진행 상태는 stderr 에만 짧게 표시됩니다.
+
     우선순위:
         1) pipx      - 설치되어 있으면 가장 깨끗하고 추천
         2) --user    - sudo 없이 사용자 site-packages에 설치 (모든 시스템에서 동작)
@@ -89,33 +133,12 @@ Genius Intelligence Installer
 설치 후:
     새 터미널을 열면 바로 'genius' 명령을 사용할 수 있습니다.
     코딩 어시스턴트(claude, omp, opencode, codex 등)도 자동으로 Genius와 함께 동작합니다.
-
-예시:
-    # 자동 설치 (가장 일반적)
-    curl -fsSL https://senghan1992.github.io/genius_book/install | sh
-
-    # 제거
-    curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --uninstall
-
-    # pipx 로 강제 설치
-    curl -fsSL https://senghan1992.github.io/genius_book/install | sh -s -- --mode=pipx
 EOF
 }
 
 # =============================================================================
 # 공용 헬퍼
 # =============================================================================
-
-# /dev/tty 가 실제로 open 가능한지 검사 (파라미터 있는 컨테이너에서도 실패 가능)
-_tty_openable() {
-    ( : < /dev/tty ) 2>/dev/null
-}
-
-is_interactive() {
-    [ -t 0 ] && return 0
-    _tty_openable && return 0
-    return 1
-}
 
 detect_pipx() {
     command -v pipx >/dev/null 2>&1
@@ -139,7 +162,6 @@ detect_passwordless_sudo() {
 # =============================================================================
 
 # 시스템이 --user 설치를 허용하는지 (PEP 668 같은 externally-managed-environment 가 없는지)
-# 빈 pip install --user --dry-run 으로 안전하게 확인한다.
 _user_mode_allowed() {
     "$PYTHON_CMD" -m pip install --user --dry-run "genius-intelligence[cli]" >/dev/null 2>&1
 }
@@ -147,39 +169,33 @@ _user_mode_allowed() {
 auto_pick_install_mode() {
     # 1) 명시 지정 우선
     if [ -n "$GENIUS_INSTALL_MODE" ]; then
-        log_info "설치 방식 지정됨: ${BOLD}${GENIUS_INSTALL_MODE}${NC}"
         return 0
     fi
 
     # 2) pipx 우선 (정확히 이 use-case 를 위해 만들어진 도구)
     if detect_pipx; then
         GENIUS_INSTALL_MODE="pipx"
-        log_info "자동 선택: ${BOLD}pipx${NC} (감지됨 ✓)"
         return 0
     fi
 
     # 3) --user 가 이 시스템에서 허용되는지 (PEP 668 호환성 체크)
     if _user_mode_allowed; then
         GENIUS_INSTALL_MODE="user"
-        log_info "자동 선택: ${BOLD}--user${NC} (sudo 없이 사용자 환경에 설치)"
         return 0
     fi
 
     # 4) --user 가 막혀있으면 (Debian/Ubuntu PEP 668) pipx 를 자동 설치 후 사용
-    log_warn "이 시스템은 --user 설치를 막고 있어 (PEP 668) pipx 를 자동 설치합니다..."
+    #    진행 라벨로만 표현 — 한 줄 경고 없이 바로 시도
     if "$PYTHON_CMD" -m pip install --user pipx >/dev/null 2>&1; then
-        # pipx ensurepath 로 PATH 까지 잡아준다
         "$PYTHON_CMD" -m pipx ensurepath >/dev/null 2>&1 || true
         if command -v pipx >/dev/null 2>&1; then
             GENIUS_INSTALL_MODE="pipx"
-            log_info "자동 선택: ${BOLD}pipx${NC} (자동 설치됨 ✓)"
             return 0
         fi
     fi
 
     # 5) 최후의 수단: venv (격리된 가상환경)
     GENIUS_INSTALL_MODE="venv"
-    log_warn "기본 설치가 모두 막혀 ${BOLD}venv${NC} (격리 가상환경) 로 fallback 합니다."
     return 0
 }
 
@@ -188,41 +204,39 @@ auto_pick_install_mode() {
 # =============================================================================
 
 check_requirements() {
-    log_info "Requirements 체크 중..."
+    progress "Checking Python"
 
     if command -v python3 >/dev/null 2>&1; then
         PYTHON_CMD="python3"
     elif command -v python >/dev/null 2>&1; then
         PYTHON_CMD="python"
     else
-        log_error "Python3가 설치되어 있지 않습니다."
-        log_info "Python3 설치: https://www.python.org/downloads/"
-        exit 1
+        fail "Python3 가 설치되어 있지 않습니다." \
+             "Python3 설치: https://www.python.org/downloads/"
     fi
 
     PYTHON_VERSION=$("$PYTHON_CMD" --version 2>&1 | cut -d' ' -f2)
 
     if ! "$PYTHON_CMD" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
-        log_error "Python 3.10 이상이 필요합니다. 현재: $PYTHON_VERSION"
-        exit 1
+        fail "Python 3.10 이상이 필요합니다. 현재: $PYTHON_VERSION" \
+             "Homebrew / apt / pyenv 로 Python 을 업그레이드하세요."
     fi
 
-    log_success "Python $PYTHON_VERSION ✓"
+    progress_done "Python $PYTHON_VERSION"
 
     if ! "$PYTHON_CMD" -m pip --version >/dev/null 2>&1; then
-        log_info "pip 설치 중..."
+        progress "Bootstrapping pip"
         if ! "$PYTHON_CMD" -m ensurepip --upgrade >/dev/null 2>&1; then
-            log_error "pip 설치 실패"
-            exit 1
+            fail "pip 설치 실패" \
+                 "$PYTHON_CMD -m ensurepip --upgrade 를 수동으로 실행해 보세요."
         fi
+        progress_done "pip"
+    else
+        progress_done "pip"
     fi
 
-    log_success "pip ✓"
-
     if command -v git >/dev/null 2>&1; then
-        log_success "git ✓"
-    else
-        log_warn "git가 설치되어 있지 않습니다 (선택사항)"
+        : # git OK — 굳이 알릴 필요 없음
     fi
 }
 
@@ -292,21 +306,45 @@ _path_has_dir() {
 }
 
 install_mode_global() {
-    log_info "전역 설치 진행 중... (${PYTHON_CMD})"
-    "$PYTHON_CMD" -m pip install --upgrade pip
-    "$PYTHON_CMD" -m pip install "genius-intelligence[cli]"
+    progress "Installing genius-intelligence (global)"
+    _out=$("$PYTHON_CMD" -m pip install --upgrade pip 2>&1)
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        printf '%s\n' "$_out" | tail -n 5 >&2
+        fail "pip 업그레이드 실패 (global)" \
+             "sudo 가 가능한 환경인지 확인하세요."
+    fi
+
+    _out=$("$PYTHON_CMD" -m pip install "genius-intelligence[cli]" 2>&1)
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        printf '%s\n' "$_out" | tail -n 5 >&2
+        fail "전역 설치 실패" \
+             "--mode=user 또는 --mode=venv 로 재시도해 보세요."
+    fi
+
     GENIUS_INSTALLED_PYTHON="$PYTHON_CMD"
-    log_success "전역 설치 완료!"
+    progress_done "Installed genius-intelligence (global)"
 }
 
 install_mode_venv() {
-    log_info "가상환경 생성 중: ${GENIUS_VENV_DIR}"
+    progress "Installing genius-intelligence (venv)"
     mkdir -p "$GENIUS_HOME"
     "$PYTHON_CMD" -m venv "$GENIUS_VENV_DIR"
 
-    log_info "가상환경에 genius-intelligence 설치 중..."
-    "$GENIUS_VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null 2>&1
-    "$GENIUS_VENV_DIR/bin/python" -m pip install "genius-intelligence[cli]"
+    _out=$("$GENIUS_VENV_DIR/bin/python" -m pip install --upgrade pip 2>&1)
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        printf '%s\n' "$_out" | tail -n 5 >&2
+        fail "venv pip 업그레이드 실패"
+    fi
+
+    _out=$("$GENIUS_VENV_DIR/bin/python" -m pip install "genius-intelligence[cli]" 2>&1)
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        printf '%s\n' "$_out" | tail -n 5 >&2
+        fail "venv 설치 실패"
+    fi
 
     mkdir -p "$HOME/.local/bin"
     WRAPPER="$HOME/.local/bin/genius"
@@ -315,13 +353,19 @@ install_mode_venv() {
 
     GENIUS_INSTALLED_PYTHON="$GENIUS_VENV_DIR/bin/python"
     GENIUS_INSTALLED_BIN_DIR="$HOME/.local/bin"
-    log_success "가상환경 설치 완료! (실행 파일: $WRAPPER)"
+    progress_done "Installed genius-intelligence (venv)"
 }
 
 install_mode_pipx() {
     if ! detect_pipx; then
-        log_warn "pipx가 설치되어 있지 않습니다. pipx를 먼저 설치합니다..."
-        "$PYTHON_CMD" -m pip install --user pipx
+        # pipx 자동 설치 — 출력 묵음, 실패 시 마지막 5줄만 stderr
+        _out=$("$PYTHON_CMD" -m pip install --user pipx 2>&1)
+        _rc=$?
+        if [ "$_rc" -ne 0 ]; then
+            printf '%s\n' "$_out" | tail -n 5 >&2
+            fail "pipx 자동 설치 실패" \
+                 "--mode=venv 로 재시도하거나 pipx 를 수동 설치하세요."
+        fi
         "$PYTHON_CMD" -m pipx ensurepath >/dev/null 2>&1 || true
         if command -v pipx >/dev/null 2>&1; then
             PIPX_CMD="pipx"
@@ -332,28 +376,39 @@ install_mode_pipx() {
         PIPX_CMD="pipx"
     fi
 
-    log_info "pipx로 설치 중..."
+    progress "Installing genius-intelligence (pipx)"
+
     # pipx 가 이미 설치한 경우 강제로 재설치 (업데이트 성격)
     if $PIPX_CMD list --short 2>/dev/null | grep -q "^genius-intelligence"; then
-        log_info "이미 설치되어 있어 업그레이드 합니다..."
-        $PIPX_CMD upgrade genius-intelligence || true
+        _out=$($PIPX_CMD upgrade genius-intelligence 2>&1) || true
     else
-        $PIPX_CMD install "genius-intelligence[cli]" \
-            || $PIPX_CMD install --force "genius-intelligence"
+        _out=$($PIPX_CMD install "genius-intelligence[cli]" 2>&1)
+        _rc=$?
+        if [ "$_rc" -ne 0 ]; then
+            printf '%s\n' "$_out" | tail -n 5 >&2
+            _out2=$($PIPX_CMD install --force "genius-intelligence" 2>&1)
+            _rc2=$?
+            if [ "$_rc2" -ne 0 ]; then
+                printf '%s\n' "$_out2" | tail -n 5 >&2
+                fail "pipx 설치 실패" \
+                     "--mode=user 또는 --mode=venv 로 재시도해 보세요."
+            fi
+        fi
     fi
 
     GENIUS_INSTALLED_PYTHON="$PYTHON_CMD"
     GENIUS_INSTALLED_BIN_DIR="$HOME/.local/bin"
-    log_success "pipx 설치 완료!"
+    progress_done "Installed genius-intelligence (pipx)"
 }
 
 install_mode_user() {
-    log_info "사용자(--user) 설치 진행 중..."
-    if ! "$PYTHON_CMD" -m pip install --user --upgrade pip 2>/dev/null; then
+    progress "Installing genius-intelligence (user)"
+    if ! "$PYTHON_CMD" -m pip install --user --upgrade pip >/dev/null 2>&1; then
         # PEP 668 환경이면 pip 자체가 --user 설치 거부 → pipx 로 위임
-        log_warn "--user pip 업그레이드 실패 (PEP 668 환경 가능성). pipx 로 위임합니다."
+        warn "--user 모드 실패 (PEP 668). pipx 로 자동 전환합니다."
         if ! detect_pipx; then
-            "$PYTHON_CMD" -m pip install --user pipx 2>/dev/null ||                 "$PYTHON_CMD" -m pip install --break-system-packages --user pipx 2>/dev/null || true
+            _out=$("$PYTHON_CMD" -m pip install --user pipx 2>&1) || \
+                _out=$("$PYTHON_CMD" -m pip install --break-system-packages --user pipx 2>&1) || true
             "$PYTHON_CMD" -m pipx ensurepath >/dev/null 2>&1 || true
         fi
         if command -v pipx >/dev/null 2>&1; then
@@ -361,11 +416,17 @@ install_mode_user() {
             install_mode_pipx
             return $?
         fi
-        log_error "--user 모드로 설치할 수 없고 pipx 도 설치할 수 없습니다."
-        exit 1
+        fail "--user 모드로 설치할 수 없고 pipx 도 설치할 수 없습니다." \
+             "--mode=venv 로 명시 지정해 보세요."
     fi
 
-    "$PYTHON_CMD" -m pip install --user "genius-intelligence[cli]"
+    _out=$("$PYTHON_CMD" -m pip install --user "genius-intelligence[cli]" 2>&1)
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        printf '%s\n' "$_out" | tail -n 5 >&2
+        fail "사용자(--user) 설치 실패" \
+             "--mode=venv 또는 --mode=pipx 로 재시도해 보세요."
+    fi
 
     # user-bin 경로를 미리 계산해둔다 (PATH 자동 보정에 사용)
     user_bin=$(_user_site_bin_dir 2>/dev/null)
@@ -375,7 +436,7 @@ install_mode_user() {
         GENIUS_INSTALLED_BIN_DIR="$HOME/.local/bin"
     fi
     GENIUS_INSTALLED_PYTHON="$PYTHON_CMD"
-    log_success "사용자 설치 완료! (실행 파일 위치: $GENIUS_INSTALLED_BIN_DIR)"
+    progress_done "Installed genius-intelligence (user)"
 }
 
 run_install() {
@@ -385,8 +446,8 @@ run_install() {
         pipx)   install_mode_pipx ;;
         user)   install_mode_user ;;
         *)
-            log_error "알 수 없는 설치 방식: $GENIUS_INSTALL_MODE (global|venv|pipx|user 중 하나)"
-            exit 1
+            fail "알 수 없는 설치 방식: $GENIUS_INSTALL_MODE" \
+                 "global | venv | pipx | user 중 하나를 --mode= 로 지정하세요."
             ;;
     esac
 }
@@ -401,7 +462,7 @@ run_install() {
 # =============================================================================
 
 install_shell_integration() {
-    log_info "셸 통합 설치 중..."
+    progress "Configuring shell"
 
     if [ -n "${ZSH_VERSION:-}" ]; then
         SHELL_RC="$HOME/.zshrc"
@@ -438,9 +499,6 @@ install_shell_integration() {
         if [ -n "$PATH_LINE" ] && ! grep -qF "$PATH_LINE" "$SHELL_RC" 2>/dev/null; then
             # rc 파일 맨 마지막 줄 앞에 안전하게 추가
             printf '\n# Genius Intelligence (PATH)\n%s\n' "$PATH_LINE" >> "$SHELL_RC"
-            log_success "PATH 추가 완료: $NEEDED_BIN → $SHELL_RC"
-        else
-            log_success "셸 통합이 이미 설치되어 있습니다 ($SHELL_RC)"
         fi
     else
         {
@@ -450,18 +508,16 @@ install_shell_integration() {
             fi
             printf '%s\n' "$GENIUS_INTEGRATION_LINE"
         } >> "$SHELL_RC"
-        log_success "셸 통합 설치 완료! ($SHELL_RC)"
-        log_info "셸을 재시작하거나 '. $SHELL_RC' 를 실행하세요"
     fi
+
+    progress_done "Configuring shell"
 }
 
 # =============================================================================
-# 설치 검증
+# 설치 검증 (조용히 — 실패해도 경고만 stderr)
 # =============================================================================
 
 verify_installation() {
-    log_info "설치 확인 중..."
-
     # 현재 스크립트 셸에서 즉시 genius 를 찾을 수 있도록 PATH 보정
     if [ -n "$GENIUS_INSTALLED_BIN_DIR" ]; then
         PATH="$GENIUS_INSTALLED_BIN_DIR:$PATH"
@@ -469,95 +525,46 @@ verify_installation() {
     export PATH
 
     if command -v genius >/dev/null 2>&1; then
-        log_success "CLI ✓  $(command -v genius)"
+        : # OK — 굳이 알릴 필요 없음
     else
-        log_warn "이 셸에서 바로 'genius' 를 찾을 수 없습니다. 새 셸을 열거나 '. $HOME/.bashrc' (또는 ~/.zshrc) 를 실행하면 PATH 가 잡힙니다."
+        warn "현재 셸에서 'genius' 를 바로 찾을 수 없습니다. 새 셸을 열거나 '. $HOME/.bashrc' (또는 ~/.zshrc) 를 실행하세요."
     fi
 
     if "$PYTHON_CMD" -c "import genius_intelligence" 2>/dev/null \
        || ( [ -n "$GENIUS_INSTALLED_PYTHON" ] && "$GENIUS_INSTALLED_PYTHON" -c "import genius_intelligence" 2>/dev/null ); then
-        log_success "Python 모듈 ✓"
-    else
-        log_warn "Python 모듈 검증을 건너뜁니다 (설치 방식에 따라 정상일 수 있음)"
+        : # Python 모듈 OK
     fi
 }
-
-show_next_steps() {
-    printf "\n"
-    printf "%b╔══════════════════════════════════════════════════════════╗%b\n" "$GREEN" "$NC"
-    printf "%b║%b   🎉  설치가 완료되었습니다!                                %b║%b\n" "$GREEN" "$NC" "$GREEN" "$NC"
-    printf "%b╚══════════════════════════════════════════════════════════╝%b\n" "$GREEN" "$NC"
-    printf "\n"
-
-    printf "  %b실행 위치%b\n" "$BOLD" "$NC"
-    rule
-    if command -v genius >/dev/null 2>&1; then
-        printf "   genius  →  %b%s%b\n" "$CYAN" "$(command -v genius)" "$NC"
-    elif [ -n "$GENIUS_INSTALLED_BIN_DIR" ]; then
-        printf "   genius  →  %b%s/genius%b\n" "$CYAN" "$GENIUS_INSTALLED_BIN_DIR" "$NC"
-    fi
-    printf "\n"
-
-    printf "  %b다음 단계%b\n" "$BOLD" "$NC"
-    rule
-    printf "   %b1.%b 새 셸을 열거나 (PATH 자동 적용):\n" "$CYAN" "$NC"
-    if [ -n "${ZSH_VERSION:-}" ]; then
-        printf "      %bexec zsh%b    또는    %b. ~/.zshrc%b\n" "$DIM" "$NC" "$DIM" "$NC"
-    elif [ -n "${BASH_VERSION:-}" ]; then
-        printf "      %bexec bash%b   또는    %b. ~/.bashrc%b\n" "$DIM" "$NC" "$DIM" "$NC"
-    else
-        printf "      %b. ~/.profile%b\n" "$DIM" "$NC"
-    fi
-    printf "\n"
-    printf "   %b2.%b 코딩 어시스턴트 실행 (자동으로 Genius 와 함께 동작):\n" "$CYAN" "$NC"
-    printf "      %bclaude%b   %bomp%b   %bopencode%b   %bcodex%b   %baider%b   ...\n" "$DIM" "$NC" "$DIM" "$NC" "$DIM" "$NC" "$DIM" "$NC" "$DIM" "$NC"
-    printf "\n"
-    printf "   %b3.%b Genius 상태 확인:\n" "$CYAN" "$NC"
-    printf "      %bgenius status%b\n" "$DIM" "$NC"
-    printf "\n"
-    printf "   %b4.%b 자주 쓰는 명령어\n" "$CYAN" "$NC"
-    printf "      %bgenius status%b     현재 상태\n" "$DIM" "$NC"
-    printf "      %bgenius search%b     지식 검색\n" "$DIM" "$NC"
-    printf "      %bgenius tree%b       저장된 지식 트리 보기\n" "$DIM" "$NC"
-    printf "      %bgenius cleanup%b    오래된 지식 정리\n" "$DIM" "$NC"
-    rule
-    printf "\n"
-}
-
-# =============================================================================
-# 제거 함수
+# 제거 함수 (stderr 진행 줄만)
 # =============================================================================
 
 uninstall() {
-    log_warn "Genius Intelligence 제거..."
-
     if command -v python3 >/dev/null 2>&1; then
         PY_UNINSTALL_CMD="python3"
     else
         PY_UNINSTALL_CMD="python"
     fi
 
+    progress "Removing genius-intelligence"
+
     # pip uninstall
     if "$PY_UNINSTALL_CMD" -m pip show genius-intelligence >/dev/null 2>&1; then
-        "$PY_UNINSTALL_CMD" -m pip uninstall -y genius-intelligence 2>/dev/null || true
-        log_success "pip 패키지 제거 완료"
+        "$PY_UNINSTALL_CMD" -m pip uninstall -y genius-intelligence >/dev/null 2>&1 || true
     fi
 
     # pipx uninstall
     if command -v pipx >/dev/null 2>&1 && pipx list --short 2>/dev/null | grep -q "^genius-intelligence"; then
-        pipx uninstall genius-intelligence 2>/dev/null || true
-        log_success "pipx 패키지 제거 완료"
+        pipx uninstall genius-intelligence >/dev/null 2>&1 || true
     fi
 
     # sudo pip uninstall (global)
     if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-        sudo -n "$PY_UNINSTALL_CMD" -m pip uninstall -y genius-intelligence 2>/dev/null || true
+        sudo -n "$PY_UNINSTALL_CMD" -m pip uninstall -y genius-intelligence >/dev/null 2>&1 || true
     fi
 
     # venv
     if [ -d "$GENIUS_VENV_DIR" ]; then
         rm -rf "$GENIUS_HOME"
-        log_success "가상환경 제거 완료: $GENIUS_HOME"
     fi
 
     # venv 래퍼
@@ -576,11 +583,10 @@ uninstall() {
                 { print }
             ' "$rc" > "$rc.tmp" && mv "$rc.tmp" "$rc"
             rm -f "${rc}.bak"
-            log_success "셸 통합 제거: $rc"
         fi
     done
 
-    log_success "제거 완료!"
+    progress_done "Removed"
 }
 
 # =============================================================================
@@ -620,14 +626,12 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         *)
-            log_error "알 수 없는 옵션: $1"
+            err "알 수 없는 옵션: $1"
             show_help
             exit 1
             ;;
     esac
 done
-
-banner
 
 if [ "$UNINSTALL_MODE" -eq 1 ]; then
     uninstall
@@ -635,23 +639,31 @@ if [ "$UNINSTALL_MODE" -eq 1 ]; then
 fi
 
 if [ "$UPDATE_MODE" -eq 1 ]; then
-    log_info "업데이트 중..."
+    progress "Updating genius-intelligence"
     # 설치된 방식 감지: pipx > --user > global 순으로 우선 시도
     UPDATED=0
     if command -v pipx >/dev/null 2>&1 && pipx list --short 2>/dev/null | grep -q "^genius-intelligence"; then
-        pipx upgrade genius-intelligence && UPDATED=1
+        _out=$(pipx upgrade genius-intelligence 2>&1) && UPDATED=1
     fi
     if [ "$UPDATED" -eq 0 ] && command -v python3 >/dev/null 2>&1; then
-        python3 -m pip install --user --upgrade "genius-intelligence[cli]" && UPDATED=1
+        _out=$(python3 -m pip install --user --upgrade "genius-intelligence[cli]" 2>&1) && UPDATED=1
     fi
     if [ "$UPDATED" -eq 0 ] && command -v python >/dev/null 2>&1; then
-        python -m pip install --user --upgrade "genius-intelligence[cli]" && UPDATED=1
+        _out=$(python -m pip install --user --upgrade "genius-intelligence[cli]" 2>&1) && UPDATED=1
     fi
     if [ "$UPDATED" -eq 0 ]; then
-        log_error "설치된 genius-intelligence 를 찾지 못했습니다. 먼저 설치해주세요."
-        exit 1
+        fail "설치된 genius-intelligence 를 찾지 못했습니다." \
+             "먼저 | sh 로 설치한 뒤 다시 시도하세요."
     fi
-    log_success "업데이트 완료!"
+    # pip/pipx 출력 끝에서 genius-intelligence 의 version 라인 추출 시도 (실패해도 OK)
+    _upd_ver=$(printf '%s\n' "$_out" 2>/dev/null \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' \
+        | head -n 1)
+    if [ -n "$_upd_ver" ]; then
+        progress_done "Updated to ${_upd_ver}"
+    else
+        progress_done "Updated"
+    fi
     exit 0
 fi
 
@@ -663,4 +675,6 @@ fi
 
 install_shell_integration
 verify_installation
-show_next_steps
+
+# 최종 완료 한 줄 — stdout 절대 금지, stderr 에만
+ok "Installed. Run 'genius' in a new shell."
