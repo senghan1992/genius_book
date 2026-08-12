@@ -73,6 +73,27 @@ class GeniusIntelligence:
         self.config.project_root = self.project_root
         self.config.genius_root = str(Path(self.project_root) / self.config.genius_dir_name)
 
+        # 초기화 여부 확인 — .genius_intelligence 폴더가 없으면
+        # 자동으로 생성하지 않음 (genius init으로 명시적 초기화 필요).
+        # 단, auto_init=True이면 _initialize()가 폴더를 생성한다.
+        self._genius_initialized = self._is_genius_initialized()
+
+        if not self._genius_initialized:
+            if not auto_init:
+                # 초기화되지 않은 프로젝트 — 컴포넌트들을 생성하지 않고
+                # no-op 상태로 둠. 모든 이벤트 핸들러는 안전하게 무시됨.
+                self.db = None  # type: ignore[assignment]
+                self.store = None  # type: ignore[assignment]
+                self.graph: KnowledgeGraph = KnowledgeGraph()
+                self.cleaner = None  # type: ignore[assignment]
+                self.current_session: Optional[CodingSession] = None
+                self._cli_tool: str = "unknown"
+                self._initialized: bool = False
+                return
+            # auto_init=True: 디렉토리를 먼저 생성하고 계속 진행
+            self._ensure_genius_structure()
+            self._genius_initialized = True
+
         # 컴포넌트
         self.db: MemoryDB = get_memory_db(self.project_root, self.config)
         self.store: KnowledgeStore = create_knowledge_store(self.project_root, self.config)
@@ -84,7 +105,6 @@ class GeniusIntelligence:
         self._cli_tool: str = self._detect_cli_tool()
         self._initialized: bool = False
 
-
         if auto_init:
             self._initialize()
 
@@ -95,10 +115,18 @@ class GeniusIntelligence:
         cls,
         project_root: str | None = None,
         auto_init: bool = True,
-    ) -> "GeniusIntelligence":
-        """현재 프로젝트용 인스턴스 생성"""
+    ) -> Optional["GeniusIntelligence"]:
+        """현재 프로젝트용 인스턴스 생성.
+
+        .genius_intelligence 폴더가 없으면 None 반환 (genius init으로
+        명시적 초기화가 필요함).
+        """
         if project_root is None:
             project_root = cls.find_project_root()
+        # 초기화 여부 확인 — 미초기화면 None 반환
+        genius_root = Path(project_root) / ".genius_intelligence"
+        if not genius_root.exists():
+            return None
         return cls(project_root, auto_init=auto_init)
 
     @classmethod
@@ -141,6 +169,14 @@ class GeniusIntelligence:
 
         return str(Path(start).resolve())
 
+
+    def _is_genius_initialized(self) -> bool:
+        """프로젝트가 genius init으로 초기화됐는지 확인.
+
+        .genius_intelligence 폴더가 존재하면 초기화된 것으로 간주.
+        """
+        genius_dir = Path(self.config.genius_root)
+        return genius_dir.exists() and genius_dir.is_dir()
     # ── 초기화 ────────────────────────────────────────────────────────
 
     def _initialize(self) -> None:
@@ -232,6 +268,8 @@ class GeniusIntelligence:
         metadata: dict | None = None,
     ) -> None:
         """사용자 메시지 이벤트"""
+        if not self._genius_initialized:
+            return
         if not self.current_session:
             self._start_session()
 
@@ -257,6 +295,8 @@ class GeniusIntelligence:
         metadata: dict | None = None,
     ) -> None:
         """AI 응답 이벤트"""
+        if not self._genius_initialized:
+            return
         if not self.current_session:
             return
 
@@ -292,6 +332,8 @@ class GeniusIntelligence:
         current_file: str = "",
     ) -> None:
         """명령어 실행 결과"""
+        if not self._genius_initialized:
+            return
         if not self.current_session:
             return
 
@@ -332,6 +374,8 @@ class GeniusIntelligence:
         stack_trace: str = "",
     ) -> None:
         """에러 발생 이벤트"""
+        if not self._genius_initialized:
+            return
         if not self.current_session:
             return
 
@@ -362,7 +406,7 @@ class GeniusIntelligence:
 
     def on_file_created(self, file_path: str, content: str = "") -> None:
         """파일 생성 이벤트"""
-        if not self.current_session:
+        if not self._genius_initialized or not self.current_session:
             return
         event = SessionEvent(
             event_type=EventType.FILE_CREATED,
@@ -374,7 +418,7 @@ class GeniusIntelligence:
 
     def on_file_modified(self, file_path: str, change_summary: str = "") -> None:
         """파일 수정 이벤트"""
-        if not self.current_session:
+        if not self._genius_initialized or not self.current_session:
             return
         event = SessionEvent(
             event_type=EventType.FILE_MODIFIED,
@@ -386,7 +430,7 @@ class GeniusIntelligence:
 
     def on_user_correction(self, correction: str, original_attempt: str = "") -> None:
         """사용자 수정 이벤트"""
-        if not self.current_session:
+        if not self._genius_initialized or not self.current_session:
             return
 
         event = SessionEvent(
@@ -481,6 +525,9 @@ class GeniusIntelligence:
         쿼리와 관련된 저장된 지식 노드를 반환합니다.
         접근 시 last_accessed_at이 갱신됩니다.
         """
+        if not self._genius_initialized:
+            return []
+
         results = self.graph.find_similar(query, limit=limit)
 
         # 접근 시간 업데이트
@@ -516,6 +563,8 @@ class GeniusIntelligence:
         - attempt_record가 config.auto_knowledge_threshold를 통과 (3회 이상 시도 또는 반복 실패)
         """
         threshold = self.config.auto_knowledge_threshold
+        if not self._genius_initialized:
+            return None
         if not force and not attempt_record._should_knowledgeize_with_threshold(threshold):
             return None
 
@@ -613,7 +662,7 @@ class GeniusIntelligence:
         Returns:
             이번 세션에서 생성된 지식 노드 목록
         """
-        if not self.current_session:
+        if not self._genius_initialized or not self.current_session:
             return []
 
         session = self.current_session
@@ -757,6 +806,12 @@ class GeniusIntelligence:
 
     def get_stats(self) -> dict:
         """통계 반환"""
+        if not self._genius_initialized:
+            return {"total_active_nodes": 0, "total_sessions": 0,
+                    "total_login_info": 0, "domain_distribution": {},
+                    "current_session": None, "project_root": self.project_root,
+                    "cli_tool": self._cli_tool}
+
         db_stats = self.db.get_stats()
         return {
             **db_stats,
@@ -770,4 +825,7 @@ class GeniusIntelligence:
 
     def get_tree(self) -> dict:
         """폴더 트리 반환"""
+        if not self._genius_initialized or not self.store:
+            return {"name": ".genius_intelligence", "type": "dir", "children": []}
+
         return self.store.get_tree_structure()

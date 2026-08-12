@@ -237,7 +237,8 @@ class AgentWrapper:
                 stdin.flush()
 
                 # 사용자 입력도 추적
-                self.genius.on_user_message(line)
+                if self.genius:
+                    self.genius.on_user_message(line)
 
             except EOFError:
                 break
@@ -251,6 +252,8 @@ class AgentWrapper:
 
         event_type = event.get("type", "")
 
+        if not self.genius:
+            return
         if event_type == "error":
             self.genius.on_error_occurred(
                 event.get("content", ""),
@@ -287,7 +290,8 @@ class AgentWrapper:
             self.watcher = None
 
         # 세션 플러시
-        self.genius.flush()
+        if self.genius:
+            self.genius.flush()
 
     # ── 컨텍스트 매니저 ───────────────────────────────────────────
 

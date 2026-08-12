@@ -2,6 +2,7 @@
 CLI - genius 명령어
 ===================
 """
+import subprocess
 import sys
 import json
 from pathlib import Path
@@ -35,12 +36,22 @@ def cli(ctx, project, verbose):
     ctx.obj["project"] = project
 
 
+def _require_genius(project=None):
+    """초기화된 GeniusIntelligence 인스턴스 반환 또는 에러 종료.
+
+    .genius_intelligence 폴더가 없으면 'genius init' 안내 후 종료.
+    """
+    genius = GeniusIntelligence.for_current_project(project)
+    if genius is None:
+        click.echo("Error: 이 프로젝트는 초기화되지 않았습니다.")
+        click.echo("먼저 'genius init'을 실행하세요.")
+        sys.exit(1)
+    return genius
+
+
 @cli.command()
 def status():
-    genius = GeniusIntelligence.for_current_project()
-    if genius is None:
-        click.echo("Error: Genius Intelligence 프로젝트가 아닙니다.")
-        sys.exit(1)
+    genius = _require_genius()
     stats = genius.get_stats()
     pretty_print_stats(stats)
 
@@ -49,10 +60,7 @@ def status():
 @click.argument("query")
 @click.option("--limit", "-n", default=5, help="결과 개수")
 def search(query, limit):
-    genius = GeniusIntelligence.for_current_project()
-    if genius is None:
-        click.echo("Error: Genius Intelligence 프로젝트가 아닙니다.")
-        sys.exit(1)
+    genius = _require_genius()
     results = genius.search_knowledge(query, limit=limit)
     if not results:
         click.echo(f"'{query}' 관련 지식이 없습니다.")
@@ -65,10 +73,7 @@ def search(query, limit):
 
 @cli.command()
 def tree():
-    genius = GeniusIntelligence.for_current_project()
-    if genius is None:
-        click.echo("Error: Genius Intelligence 프로젝트가 아닙니다.")
-        sys.exit(1)
+    genius = _require_genius()
     tree = genius.get_tree()
     output = format_tree(tree)
     click.echo(f"\n{genius.config.genius_dir_name}/")
@@ -79,10 +84,7 @@ def tree():
 @click.option("--days", default=None, type=int, help="미사용 일수")
 @click.option("--dry-run", is_flag=True, help="실행 없이 미리보기")
 def cleanup(days, dry_run):
-    genius = GeniusIntelligence.for_current_project()
-    if genius is None:
-        click.echo("Error: Genius Intelligence 프로젝트가 아닙니다.")
-        sys.exit(1)
+    genius = _require_genius()
     if days is None:
         days = genius.config.stale_days
     if dry_run:
@@ -101,7 +103,9 @@ def init(force):
     if genius_dir.exists() and not force:
         click.echo("Already initialized. Use --force to reinitialize.")
         sys.exit(1)
-    genius = GeniusIntelligence.for_current_project(str(project))
+    # init은 for_current_project가 아닌 직접 생성자로 초기화.
+    # for_current_project는 .genius_intelligence 폴더가 없으면 None을 반환하므로.
+    genius = GeniusIntelligence(str(project), auto_init=True)
     click.echo(f"Initialized: {genius_dir}")
 
 
@@ -111,10 +115,7 @@ def init(force):
 @click.option("--tag", "-t", multiple=True, help="태그")
 def add(task_description, domain, tag):
     from ..types.knowledge import KnowledgeNode, KnowledgeType, KnowledgeDomain
-    genius = GeniusIntelligence.for_current_project()
-    if genius is None:
-        click.echo("Error: Genius Intelligence 프로젝트가 아닙니다.")
-        sys.exit(1)
+    genius = _require_genius()
     if domain is None:
         domain = KnowledgeDomain.detect_domain(task_description, genius.config.custom_domains)
     topic = genius._extract_topic(task_description)
@@ -135,10 +136,7 @@ def add(task_description, domain, tag):
 
 @cli.command()
 def stats():
-    genius = GeniusIntelligence.for_current_project()
-    if genius is None:
-        click.echo("Error: Genius Intelligence 프로젝트가 아닙니다.")
-        sys.exit(1)
+    genius = _require_genius()
     all_stats = genius.db.get_stats()
     cleaner_stats = genius.cleaner.get_cleanup_stats()
 
@@ -161,10 +159,7 @@ def stats():
 
 @cli.command()
 def integrate():
-    genius = GeniusIntelligence.for_current_project()
-    if genius is None:
-        click.echo("Error: Genius Intelligence 프로젝트가 아닙니다.")
-        sys.exit(1)
+    genius = _require_genius()
     from ..hooks.adapter import HookAdapter
     adapter = HookAdapter.auto_detect()
     if adapter is None:
@@ -212,6 +207,14 @@ def wrap(cli_tool, args, project, force):
 
     wrapper = UniversalWrapper(project, supported_clis=supported_clis)
 
+    # 초기화되지 않은 프로젝트면 경고 후 그냥 CLI 실행
+    if not wrapper.genius or not wrapper.genius._genius_initialized:
+        print(f"[genius] 이 프로젝트는 초기화되지 않았습니다. "
+              f"'genius init'을 먼저 실행하세요.", file=sys.stderr)
+        print(f"[genius] CLI를 감싸지 않고 그대로 실행합니다.", file=sys.stderr)
+        cmd = [cli_tool] + list(args)
+        sys.exit(subprocess.run(cmd).returncode)
+
     # B2: 세션 시작 시 컨텍스트 파일 자동 갱신
     try:
         from ..context import write_context_file
@@ -238,10 +241,7 @@ def context(query, limit, write):
     빈 결과면 아무것도 출력하지 않는다.
     """
     from ..context import render_knowledge_context, write_context_file
-    genius = GeniusIntelligence.for_current_project()
-    if genius is None:
-        click.echo("Error: Genius Intelligence 프로젝트가 아닙니다.", err=True)
-        sys.exit(1)
+    genius = _require_genius()
 
     if write:
         path = write_context_file(genius, query, limit)

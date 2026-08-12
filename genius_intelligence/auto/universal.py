@@ -148,12 +148,15 @@ class UniversalWrapper:
         # 지원 CLI 목록 (사용자 지정 또는 기본값)
         self.supported_clis = supported_clis or self.DEFAULT_SUPPORTED_CLIS
 
-        # GeniusIntelligence 연결
+        # GeniusIntelligence 연결 — 초기화되지 않은 프로젝트면 None
         self.genius = GeniusIntelligence.for_current_project(str(self.project_root))
 
-        # 플랜 추적
-        self.plan_tracker = PlanTracker(str(self.project_root), genius_instance=self.genius)
-        self.plan_tracker.start_monitoring()
+        # 플랜 추적 — genius가 None이면 건너뜀
+        if self.genius:
+            self.plan_tracker = PlanTracker(str(self.project_root), genius_instance=self.genius)
+            self.plan_tracker.start_monitoring()
+        else:
+            self.plan_tracker = None
 
         # 상태
         self._running = False

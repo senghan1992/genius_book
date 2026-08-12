@@ -95,6 +95,14 @@ genius_wrap() {
         return $?
     fi
 
+    # .genius_intelligence 폴더가 없으면 감싸지 않고 원본 실행
+    if [ ! -d ".genius_intelligence" ]; then
+        echo "[genius] 프로젝트가 초기화되지 않았습니다. 'genius init'을 먼저 실행하세요." >&2
+        echo "[genius] CLI를 감싸지 않고 그대로 실행합니다." >&2
+        command "$cmd" "$@"
+        return $?
+    fi
+
     genius_log "Wrapping: $cmd $*"
 
     genius wrap "$cmd" -- "$@"

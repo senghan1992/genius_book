@@ -201,7 +201,7 @@ class TestGeniusIntelligence:
             proj.mkdir()
             (proj / "pyproject.toml").write_text("[project]")
             genius_intelligence.memory.db._db_cache.clear()
-            genius = GeniusIntelligence.for_current_project(str(proj))
+            genius = GeniusIntelligence(str(proj), auto_init=True)
             results = genius.search_knowledge("test", limit=3)
             assert isinstance(results, list)
             shutil.rmtree(tmpdir, ignore_errors=True)
@@ -337,7 +337,7 @@ class TestA1KnowledgeizeLoop:
             proj.mkdir()
             (proj / "pyproject.toml").write_text("[project]")
             genius_intelligence.memory.db._db_cache.clear()
-            genius = GeniusIntelligence.for_current_project(str(proj))
+            genius = GeniusIntelligence(str(proj), auto_init=True)
 
             # 동일 주제로 3회 실패 주입
             for _ in range(3):
@@ -385,7 +385,7 @@ class TestA2SessionPersistence:
             proj.mkdir()
             (proj / "pyproject.toml").write_text("[project]")
             genius_intelligence.memory.db._db_cache.clear()
-            genius = GeniusIntelligence.for_current_project(str(proj))
+            genius = GeniusIntelligence(str(proj), auto_init=True)
 
             genius.on_user_message("test message")
             genius.on_error_occurred("some error")
@@ -412,7 +412,7 @@ class TestA2SessionPersistence:
             proj.mkdir()
             (proj / "pyproject.toml").write_text("[project]")
             genius_intelligence.memory.db._db_cache.clear()
-            genius = GeniusIntelligence.for_current_project(str(proj))
+            genius = GeniusIntelligence(str(proj), auto_init=True)
 
             genius.on_user_message("test task")
             genius.on_error_occurred("error")
@@ -546,7 +546,7 @@ class TestA6CleanupSafety:
             proj.mkdir()
             (proj / "pyproject.toml").write_text("[project]")
             genius_intelligence.memory.db._db_cache.clear()
-            genius = GeniusIntelligence.for_current_project(str(proj))
+            genius = GeniusIntelligence(str(proj), auto_init=True)
 
             # 노드 하나 추가
             from genius_intelligence.types.knowledge import KnowledgeNode, KnowledgeType
@@ -585,7 +585,7 @@ class TestB1ContextInjection:
             proj.mkdir()
             (proj / "pyproject.toml").write_text("[project]")
             genius_intelligence.memory.db._db_cache.clear()
-            genius = GeniusIntelligence.for_current_project(str(proj))
+            genius = GeniusIntelligence(str(proj), auto_init=True)
 
             # 지식 2개 저장
             from genius_intelligence.types.knowledge import KnowledgeNode, KnowledgeType
@@ -627,7 +627,7 @@ class TestB1ContextInjection:
             proj.mkdir()
             (proj / "pyproject.toml").write_text("[project]")
             genius_intelligence.memory.db._db_cache.clear()
-            genius = GeniusIntelligence.for_current_project(str(proj))
+            genius = GeniusIntelligence(str(proj), auto_init=True)
 
             md = render_knowledge_context(genius, "nonexistent", limit=5)
             assert md == ""
